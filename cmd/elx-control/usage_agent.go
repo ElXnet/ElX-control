@@ -63,15 +63,22 @@ func serveUsage(ctx context.Context, args []string) error {
 	if fs.NArg() != 0 || *interval < time.Second || *interval > time.Hour {
 		return errors.New("usage poll interval must be 1s..1h")
 	}
-	bindings, err := usageBindings()
-	if err != nil { return err }
+	// Optional legacy file for operators already using static bindings. The
+	// normal path is authoritative discovery over mTLS on every poll.
+	static := os.Getenv("ELX_USAGE_BINDINGS") != ""
+	var bindings []accounting.RemoteBinding
+	var err error
+	if static {
+		bindings, err = usageBindings()
+		if err != nil { return err }
+	}
 	cfg, err := transportTLS()
 	if err != nil { return err }
 	cfg.MinVersion = tls.VersionTLS13
 	endpoint := os.Getenv("ELX_POLICY_CONTROL")
 	if endpoint == "" { return errors.New("ELX_POLICY_CONTROL is required") }
 	conn, err := grpc.NewClient(endpoint, grpc.WithTransportCredentials(credentials.NewTLS(cfg)),
-		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(4096)))
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(1<<20)))
 	if err != nil { return err }
 	defer conn.Close()
 	core, err := openCore()
@@ -81,6 +88,27 @@ func serveUsage(ctx context.Context, args []string) error {
 	defer ticker.Stop()
 	for {
 		if ctx.Err() != nil { return nil }
+		if !static {
+			callCtx,cancel:=context.WithTimeout(ctx,15*time.Second)
+			discovered,discoverErr:=usagetransport.DiscoverBindings(callCtx,conn)
+			cancel()
+			if ctx.Err()!=nil{return nil}
+			if discoverErr!=nil {
+				switch status.Code(discoverErr) {
+				case codes.Unavailable,codes.DeadlineExceeded,codes.FailedPrecondition:
+					if *once {return discoverErr}
+					fmt.Fprintln(os.Stderr,"ElX signed usage bindings unavailable; retrying:",status.Code(discoverErr))
+				default:
+					return fmt.Errorf("signed usage discovery stopped (fail closed): %w",discoverErr)
+				}
+			}else{
+				bindings=discovered
+			}
+			// Never use a previous discovery snapshot when the master is
+			// unavailable: a revoked assignment may have been removed.
+			if discoverErr!=nil {bindings=nil}
+		}
+		if *once && len(bindings)==0{return errors.New("no Control-assigned signed usage streams")}
 		for _, binding := range bindings {
 			callCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 			receipt, err := usagetransport.PollOne(callCtx, conn, core, binding)
