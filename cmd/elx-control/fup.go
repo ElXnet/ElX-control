@@ -71,6 +71,9 @@ func runFUP(ctx context.Context, db *sql.DB, args []string, continuous bool) err
 	if fs.NArg() != 0 || *interval < time.Second || *interval > time.Hour {
 		return errors.New("FUP interval must be 1s..1h; no positional arguments accepted")
 	}
+	if ctx.Err() != nil {
+		return nil
+	}
 	if err := reconcileFUP(ctx, db, *target); err != nil || !continuous {
 		return err
 	}
