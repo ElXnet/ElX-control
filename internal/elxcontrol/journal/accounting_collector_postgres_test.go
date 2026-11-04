@@ -33,6 +33,9 @@ func TestCollectPinnedCoreUsageAcrossTwoNodes(t *testing.T) {
 	_, err := db.ExecContext(ctx, `INSERT INTO elx_entitlements(id,active_slots,valid_until)
 		VALUES($1,2,clock_timestamp()+interval '1 day')`, entitlement)
 	checkError(t, err, nil)
+	_, err = db.ExecContext(ctx, `INSERT INTO elx_rate_budgets
+		(entitlement_id,up_limit,down_limit) VALUES($1,100,100)`, entitlement)
+	checkError(t, err, nil)
 	_, err = db.ExecContext(ctx, `INSERT INTO elx_usage_periods
 		(id,entitlement_id,starts_at,ends_at,direction,threshold_bytes,reduced_up,reduced_down)
 		VALUES($1,$2,$3,$4,'total',100,10,10)`, period, entitlement, now.Add(-time.Hour), now.Add(time.Hour))
@@ -68,6 +71,15 @@ func TestCollectPinnedCoreUsageAcrossTwoNodes(t *testing.T) {
 		nodes[i] = source{binding: binding, key: key, name: sub,
 			usage: corepolicy.Usage{Incarnation: binding.Incarnation, Sequence: 1,
 				SampledAt: now, UpBytes: int64(20+15*i), DownBytes: int64(20+15*i)}}
+		targetResource := uuid.New()
+		_, err = db.ExecContext(ctx, `INSERT INTO elx_operation_targets(node_id,resource_id)
+			VALUES($1,$2)`, binding.NodeID, targetResource)
+		checkError(t, err, nil)
+		_, err = db.ExecContext(ctx, `INSERT INTO elx_rate_grants
+			(entitlement_id,node_id,resource_id,committed_up,committed_down,epoch,barrier_public_key)
+			VALUES($1,$2,$3,40,40,1,$4)`,
+			entitlement, binding.NodeID, targetResource, []byte(key))
+		checkError(t, err, nil)
 	}
 
 	read := func(s source) (accounting.Receipt, error) {
@@ -83,6 +95,18 @@ func TestCollectPinnedCoreUsageAcrossTwoNodes(t *testing.T) {
 	checkError(t, err, nil)
 	if !second.Crossed || second.Duplicate {
 		t.Fatalf("two-node FUP did not cross threshold: %+v", second)
+	}
+	// The crossing must feed the durable rate-grant outbox for both nodes,
+	// rather than merely updating the dashboard's usage counter.
+	queued, err := ReconcileFUP(ctx, db, entitlement.String())
+	checkError(t, err, nil)
+	if !queued.Active || queued.Queued != 2 {
+		t.Fatalf("signed FUP crossing did not enqueue two node reductions: %+v", queued)
+	}
+	repeated, err := ReconcileFUP(ctx, db, entitlement.String())
+	checkError(t, err, nil)
+	if repeated.Queued != 0 || repeated.Pending != 2 {
+		t.Fatalf("retry duplicated pending reductions: %+v", repeated)
 	}
 	replay, err := read(nodes[0])
 	checkError(t, err, nil)
