@@ -48,7 +48,7 @@ func SignedFUPLeaseReady(ctx context.Context,db *sql.DB,entitlement,node,resourc
 				  AND st.period_id=a.period_id
 				JOIN elx_core_identities c ON c.node_id=a.node_id
 				  AND c.incarnation=a.incarnation
-				WHERE a.period_id=s.current_period_id
+				WHERE a.period_id=s.current_period_id AND a.active
 				  AND a.node_id=g.node_id AND a.resource_id=g.resource_id
 				  AND st.primed AND NOT st.closed AND NOT c.revoked
 				  AND st.last_received_at>=clock_timestamp()-interval '30 seconds'
