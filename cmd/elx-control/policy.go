@@ -20,6 +20,7 @@ import (
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/corepolicy"
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/journal"
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/policytransport"
+	"github.com/ElXnet/ElX-control/internal/elxcontrol/usagetransport"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -80,6 +81,9 @@ func servePolicy(ctx context.Context, db *sql.DB) error {
 	defer listener.Close()
 	server := grpc.NewServer(grpc.Creds(credentials.NewTLS(cfg)), grpc.MaxRecvMsgSize(4096))
 	if err := policytransport.Register(server, db, bindings...); err != nil {
+		return err
+	}
+	if err := usagetransport.Register(server, db); err != nil {
 		return err
 	}
 	stop := context.AfterFunc(ctx, server.Stop)
