@@ -17,7 +17,7 @@ import (
 
 func run(ctx context.Context, args []string, dsn string) error {
 	if len(args) == 0 {
-		return errors.New("usage: elx-control migrate|issue-invite|serve-management|serve-policy|serve-agent|serve-usage|drain-profile|enqueue-drain|enqueue-policy|apply-policy|policy-public-key|read-usage|collect-usage|collect-current|provision-usage|auto-provision-usage|usage-coverage|activate-fup|queue-rate-move|begin-core-rotation|complete-core-rotation|reconcile-fup|serve-fup|advance-periods")
+		return errors.New("usage: elx-control migrate|issue-invite|serve-management|serve-payment-ingress|serve-policy|serve-agent|serve-usage|drain-profile|enqueue-drain|enqueue-policy|apply-policy|policy-public-key|read-usage|collect-usage|collect-current|provision-usage|auto-provision-usage|usage-coverage|activate-fup|queue-rate-move|begin-core-rotation|complete-core-rotation|reconcile-fup|serve-fup|advance-periods")
 	}
 	switch args[0] {
 	case "policy-public-key":
@@ -35,7 +35,7 @@ func run(ctx context.Context, args []string, dsn string) error {
 			return errors.New("usage: elx-control apply-policy")
 		}
 		return applyPolicy(ctx)
-	case "migrate", "issue-invite", "serve-management", "serve-policy", "enqueue-policy", "enqueue-drain", "collect-usage", "collect-current", "provision-usage", "auto-provision-usage", "usage-coverage", "activate-fup", "queue-rate-move", "begin-core-rotation", "complete-core-rotation", "reconcile-fup", "serve-fup", "advance-periods":
+	case "migrate", "issue-invite", "serve-management", "serve-payment-ingress", "serve-policy", "enqueue-policy", "enqueue-drain", "collect-usage", "collect-current", "provision-usage", "auto-provision-usage", "usage-coverage", "activate-fup", "queue-rate-move", "begin-core-rotation", "complete-core-rotation", "reconcile-fup", "serve-fup", "advance-periods":
 	default:
 		return errors.New("unknown elx-control command")
 	}
@@ -63,6 +63,8 @@ func run(ctx context.Context, args []string, dsn string) error {
 		return servePolicy(ctx, db)
 	case "serve-management":
 		return serveManagement(ctx, db)
+	case "serve-payment-ingress":
+		return servePaymentIngress(ctx,db)
 	case "issue-invite":
 		return issueInvite(ctx, db, args[1:])
 	case "enqueue-policy":
