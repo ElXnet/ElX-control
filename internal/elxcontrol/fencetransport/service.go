@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/nodeidentity"
@@ -27,10 +28,49 @@ type Receipt struct {
 	Signature []byte
 }
 
+// Job is only generated from a Control-authorized draining owner. PublicKey
+// is the pinned Ed25519 key for this exact core boot, not a client-provided
+// replacement. A node additionally checks it against ElXray's signature.
+type Job struct {
+	Fence session.Fence
+	PublicKey []byte
+}
+
 type service interface {
+	next(context.Context, *emptypb.Empty) (*wrapperspb.BytesValue,error)
 	submit(context.Context, *wrapperspb.BytesValue) (*emptypb.Empty,error)
 }
 type receiver struct{db *sql.DB}
+
+// next returns only pending, explicitly queued session drains for this
+// authenticated node. It never creates a drain from a node request.
+func (s *receiver) next(ctx context.Context, _ *emptypb.Empty) (*wrapperspb.BytesValue,error) {
+	nodeText,err:=nodeidentity.FromGRPC(ctx)
+	if err!=nil {return nil,status.Error(codes.PermissionDenied,"verified node certificate required")}
+	nodeID,err:=uuid.Parse(nodeText)
+	if err!=nil || nodeID==uuid.Nil {return nil,status.Error(codes.PermissionDenied,"invalid node identity")}
+	var j Job
+	j.Fence.NodeID=nodeID
+	err=s.db.QueryRowContext(ctx,`SELECT o.id,o.profile_id,o.generation,
+		o.core_incarnation,c.public_key
+		FROM elx_session_owners o
+		JOIN elx_core_identities c ON c.node_id=o.node_id
+			AND c.incarnation=o.core_incarnation
+		WHERE o.node_id=$1 AND o.state='draining' AND o.profile_id IS NOT NULL
+			AND o.core_incarnation IS NOT NULL AND c.revoked=false
+		ORDER BY o.reserved_at,o.id LIMIT 1`,nodeID).
+		Scan(&j.Fence.OwnerID,&j.Fence.ProfileID,&j.Fence.Generation,
+			&j.Fence.Incarnation,&j.PublicKey)
+	if errors.Is(err,sql.ErrNoRows) {return nil,status.Error(codes.NotFound,"no approved drain pending")}
+	if err!=nil {return nil,status.Error(codes.Unavailable,"session journal unavailable")}
+	if len(j.PublicKey)!=ed25519.PublicKeySize {
+		return nil,status.Error(codes.FailedPrecondition,"untrusted core identity")
+	}
+	data,err:=json.Marshal(j)
+	if err!=nil {return nil,status.Error(codes.Internal,"fence job serialization failed")}
+	return wrapperspb.Bytes(data),nil
+}
+
 
 func (s *receiver) submit(ctx context.Context, in *wrapperspb.BytesValue) (*emptypb.Empty,error) {
 	nodeText,err:=nodeidentity.FromGRPC(ctx)
@@ -69,9 +109,23 @@ func Register(g *grpc.Server,db *sql.DB) error {
 	if g==nil || db==nil {return errors.New("session fence requires an mTLS gRPC server and journal")}
 	g.RegisterService(&grpc.ServiceDesc{
 		ServiceName:serviceName,HandlerType:(*service)(nil),
-		Methods:[]grpc.MethodDesc{{MethodName:"Submit",Handler:handler}},
+		Methods:[]grpc.MethodDesc{
+			{MethodName:"Next",Handler:nextHandler},
+			{MethodName:"Submit",Handler:handler},
+		},
 	},&receiver{db:db})
 	return nil
+}
+
+func nextHandler(s any,ctx context.Context,decode func(any)error,intercept grpc.UnaryServerInterceptor)(any,error){
+	input:=new(emptypb.Empty)
+	if err:=decode(input);err!=nil {return nil,err}
+	if intercept==nil {return s.(*receiver).next(ctx,input)}
+	return intercept(ctx,input,&grpc.UnaryServerInfo{Server:s,
+		FullMethod:"/"+serviceName+"/Next"},
+		func(ctx context.Context,req any)(any,error){
+			return s.(*receiver).next(ctx,req.(*emptypb.Empty))
+		})
 }
 
 func handler(s any,ctx context.Context,decode func(any)error,intercept grpc.UnaryServerInterceptor)(any,error){
@@ -93,4 +147,33 @@ func Send(ctx context.Context,conn grpc.ClientConnInterface,f session.Fence,sign
 	p,err:=json.Marshal(Receipt{Fence:f,Signature:signature})
 	if err!=nil {return err}
 	return conn.Invoke(ctx,"/"+serviceName+"/Submit",wrapperspb.Bytes(p),&emptypb.Empty{})
+}
+
+// Drainer requires the local ElXray's profile-specific durable denial and
+// signed drain RPC. This can never be satisfied by a generic policy ACK.
+type Drainer interface {
+	DrainProfile(context.Context, session.Fence, ed25519.PublicKey) ([]byte,error)
+}
+
+// ApplyNext lets the node agent execute ONE Control-approved session drain.
+// The core first stops the authenticated VLESS profile, then the node sends
+// its signed receipt back. Lost ACKs are safe: Next returns the same owner
+// while its durable journal remains in draining state.
+func ApplyNext(ctx context.Context, conn grpc.ClientConnInterface, core Drainer) error {
+	if conn==nil || core==nil {return errors.New("profile drain requires Control and local ElXray")}
+	var response wrapperspb.BytesValue
+	if err:=conn.Invoke(ctx,"/"+serviceName+"/Next",&emptypb.Empty{},&response);err!=nil {
+		return err
+	}
+	if len(response.Value)>2048 {return errors.New("invalid Control drain job size")}
+	var job Job
+	if err:=json.Unmarshal(response.Value,&job);err!=nil || job.Fence.OwnerID==uuid.Nil ||
+		job.Fence.ProfileID==uuid.Nil || job.Fence.NodeID==uuid.Nil ||
+		job.Fence.Incarnation==uuid.Nil || job.Fence.Generation<=0 ||
+		len(job.PublicKey)!=ed25519.PublicKeySize {
+		return errors.New("invalid Control session drain binding")
+	}
+	signature,err:=core.DrainProfile(ctx,job.Fence,ed25519.PublicKey(job.PublicKey))
+	if err!=nil {return fmt.Errorf("ElXray profile drain not finished: %w",err)}
+	return Send(ctx,conn,job.Fence,signature)
 }
