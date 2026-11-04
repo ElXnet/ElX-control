@@ -8,9 +8,9 @@ Standalone Go control-plane module for the ElX VPN service. The active implement
 - mTLS-authenticated node delivery and pinned Ed25519 policy readback.
 - Durable session-slot reservations and one-time device proofs.
 - Generation-fenced release requiring a registered core signing key.
-- Cumulative ElXray usage readback, verified collection, and per-period FUP events.
-- Per-entitlement shared upload/download grant ledger and reduction barriers.
-- RAWI provider API client and tested weighted allocation primitives.
+- Cumulative ElXray usage readback, verified collection, per-period FUP events, and a queueing FUP reconciler.
+- Per-entitlement shared upload/download grant ledger with conservative, as-yet-unfinalized reduction barriers.
+- Calendar-aware FUP rollover (day/week/month) with atomic source-watermark inheritance and dynamic current-period collection.\n- Long-running mTLS node policy agent, FUP maintenance loop, RAWI API client, and tested allocation primitives.
 
 See `docs/elx/policy-smoke.ru.md` for Windows/WSL, PostgreSQL and two-node live VLESS integration checks.
 
@@ -28,6 +28,6 @@ This checks the **standalone** Control module. Scripts create an isolated Postgr
 
 ## Integration still required
 
-The database's session-fence verification is not itself proof that ElXray has drained a particular device's flows. Core-generated drain receipts, unique profile-to-device bindings, ongoing accounting scheduling, FUP delivery to every node, and automatic period rollover must be integrated and tested before paid production traffic. Current command `collect-usage` requires a pre-provisioned trusted source assignment. Never infer device identity from an IP address or a copied subscription URL.
+The database's session-fence verification is not itself proof that ElXray has drained a particular device's flows. Core-generated drain receipts, unique profile-to-device bindings, remote signed-accounting delivery over mTLS, stale-sample alerting, and binding the core drain and rate-barrier receipts must be integrated and tested before paid production traffic. Current command `collect-usage` requires a pre-provisioned trusted source assignment. Never infer device identity from an IP address or a copied subscription URL.
 
 Do not merge this branch or deploy as a finished business service solely on the basis of unit tests. All local and GitHub Actions test results should be inspected first.
