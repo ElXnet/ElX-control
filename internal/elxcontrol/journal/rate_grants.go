@@ -133,7 +133,8 @@ func lockBudget(ctx context.Context, tx *sql.Tx, entitlement string) (Rate, erro
 	err = tx.QueryRowContext(ctx, `SELECT MIN(e.reduced_up),MIN(e.reduced_down)
 		FROM elx_fup_events e JOIN elx_usage_periods p ON p.id=e.period_id
 		WHERE p.entitlement_id=$1 AND p.starts_at<=clock_timestamp()
-			AND p.ends_at>clock_timestamp()`, entitlement).Scan(&fupUp, &fupDown)
+			AND p.ends_at>clock_timestamp()
+		AND (p.schedule_id IS NULL OR EXISTS(SELECT 1 FROM elx_period_schedules fs WHERE fs.id=p.schedule_id AND fs.enabled))`, entitlement).Scan(&fupUp, &fupDown)
 	if err != nil {
 		return Rate{}, err
 	}

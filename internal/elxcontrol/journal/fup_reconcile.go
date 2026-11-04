@@ -46,6 +46,7 @@ func ReconcileFUP(ctx context.Context, db *sql.DB, entitlement string) (FUPRecon
 		FROM elx_rate_budgets b
 		LEFT JOIN elx_usage_periods p ON p.entitlement_id=b.entitlement_id
 		AND p.starts_at<=clock_timestamp() AND p.ends_at>clock_timestamp()
+		AND (p.schedule_id IS NULL OR EXISTS(SELECT 1 FROM elx_period_schedules fs WHERE fs.id=p.schedule_id AND fs.enabled))
 		LEFT JOIN elx_fup_events e ON e.period_id=p.id
 		WHERE b.entitlement_id=$1
 		GROUP BY b.entitlement_id,b.up_limit,b.down_limit`, entitlement).

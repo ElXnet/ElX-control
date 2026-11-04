@@ -29,6 +29,7 @@ func reconcileFUP(ctx context.Context, db *sql.DB, specific string) error {
 		rows, err := db.QueryContext(ctx, `SELECT DISTINCT p.entitlement_id
 			FROM elx_usage_periods p JOIN elx_fup_events e ON e.period_id=p.id
 			WHERE p.starts_at<=clock_timestamp() AND p.ends_at>clock_timestamp()
+			AND (p.schedule_id IS NULL OR EXISTS(SELECT 1 FROM elx_period_schedules fs WHERE fs.id=p.schedule_id AND fs.enabled))
 			ORDER BY p.entitlement_id`)
 		if err != nil {
 			return err
