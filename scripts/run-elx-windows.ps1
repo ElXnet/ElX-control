@@ -63,25 +63,9 @@ if ($LASTEXITCODE -ne 0 -or -not $pathOutput) {
 $linuxControl = ([string]($pathOutput | Select-Object -Last 1)).Trim()
 if (-not $linuxControl.StartsWith('/')) { throw "Unexpected translated path: '$linuxControl'" }
 if ($linuxControl.Contains("'")) { throw 'Workspace path cannot contain an apostrophe.' }
-# Check dependencies explicitly so a missing executable is not a silent exit 1.
-$checks = @'
-set -euo pipefail
-for tool in go git python3 openssl gcc docker; do
-    if ! command -v "$tool" >/dev/null 2>&1; then
-        echo "MISSING: $tool (install it inside the selected WSL distribution)" >&2
-        exit 1
-    fi
-    echo "OK: $tool"
-done
-if ! docker info >/dev/null 2>&1; then
-    echo "Docker Engine is unavailable from WSL. Start Docker Desktop and enable WSL Integration." >&2
-    exit 1
-fi
-echo "OK: Docker Engine"
-go version
-'@
-$linuxCommand = "cd '$linuxControl'; " + $checks + [Environment]::NewLine + "bash scripts/elx-test-local.sh"
+# Pass the Linux script as an argv path instead of a shell -c string.
+# This avoids Windows PowerShell quote mangling with embedded Bash commands.
 Write-Host "Running standalone ElX Control tests via WSL in: $linuxControl" -ForegroundColor Cyan
-& wsl.exe --distribution $Distro --exec bash -lc $linuxCommand
+& wsl.exe --distribution $Distro --exec bash "$linuxControl/scripts/elx-test-local.sh"
 if ($LASTEXITCODE -ne 0) { throw "ElX tests failed (exit code $LASTEXITCODE); inspect the WSL output above." }
 Write-Host 'PASS: ElX Windows/WSL suite' -ForegroundColor Green
