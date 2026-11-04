@@ -202,3 +202,57 @@ func readyToEnable(ctx context.Context,db *sql.DB,profileID string,
 func debugJob(j ProvisionJob)string {
  return fmt.Sprintf("%s/%s",j.JobID,j.Operation)
 }
+
+// ClaimExpiryRefresh refreshes the panel's local expires-at metadata after a
+// successful Control renewal. A profile remains disabled/active as it was:
+// this operation cannot bypass Control's signed core and rate policy gates.
+func ClaimExpiryRefresh(ctx context.Context,db *sql.DB)(ProvisionJob,error){
+ var out ProvisionJob
+ if db==nil{return out,ErrInvalid}
+ tx,err:=db.BeginTx(ctx,&sql.TxOptions{Isolation:sql.LevelReadCommitted})
+ if err!=nil{return out,err}
+ defer tx.Rollback()
+ err=tx.QueryRowContext(ctx,`SELECT j.id::text,p.id::text,p.entitlement_id::text,
+   p.vless_id::text,p.subscription_id,p.client_email,j.valid_until
+   FROM elx_profile_expiry_jobs j
+   JOIN elx_paid_profiles p ON p.id=j.profile_id
+   JOIN elx_entitlements e ON e.id=p.entitlement_id
+   WHERE (j.status='pending' OR (j.status='leased' AND
+     j.lease_until<clock_timestamp()))
+     AND p.status IN ('staged','active')
+     AND e.enabled AND e.valid_until>clock_timestamp()
+   ORDER BY j.valid_until DESC,j.id LIMIT 1 FOR UPDATE OF j SKIP LOCKED`).
+  Scan(&out.JobID,&out.ProfileID,&out.EntitlementID,&out.VLESSID,
+   &out.SubscriptionID,&out.ClientEmail,&out.ValidUntil)
+ if errors.Is(err,sql.ErrNoRows){return out,ErrNotFound}
+ if err!=nil{return out,err}
+ out.Operation="renew-expiry"
+ out.ClaimID=uuid.NewString()
+ if _,err=tx.ExecContext(ctx,`UPDATE elx_profile_expiry_jobs
+  SET status='leased',lease_owner=$2,
+    lease_until=clock_timestamp()+interval '3 minutes',
+    attempts=attempts+1 WHERE id=$1`,out.JobID,out.ClaimID);err!=nil{
+  return ProvisionJob{},err
+ }
+ return out,tx.Commit()
+}
+
+func ConfirmExpiryRefresh(ctx context.Context,db *sql.DB,job,claim string)error{
+ if db==nil||!isUUID(job)||!isUUID(claim){return ErrInvalid}
+ tx,err:=db.BeginTx(ctx,&sql.TxOptions{Isolation:sql.LevelReadCommitted})
+ if err!=nil{return err}
+ defer tx.Rollback()
+ var state string
+ var owner sql.NullString
+ var valid bool
+ err=tx.QueryRowContext(ctx,`SELECT status,lease_owner::text,
+  lease_until>clock_timestamp() FROM elx_profile_expiry_jobs
+  WHERE id=$1 FOR UPDATE`,job).Scan(&state,&owner,&valid)
+ if errors.Is(err,sql.ErrNoRows){return ErrNotFound}
+ if err!=nil{return err}
+ if state!="leased"||!owner.Valid||owner.String!=claim||!valid{return ErrConflict}
+ if _,err=tx.ExecContext(ctx,`UPDATE elx_profile_expiry_jobs
+  SET status='done',lease_owner=NULL,lease_until=NULL,
+    completed_at=clock_timestamp() WHERE id=$1`,job);err!=nil{return err}
+ return tx.Commit()
+}
