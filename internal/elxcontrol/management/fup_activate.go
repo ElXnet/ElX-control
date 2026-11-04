@@ -70,6 +70,10 @@ func (s SQLStore) ActivateSchedule(ctx context.Context,entitlement,schedule stri
 	result.Coverage.ScheduleID=schedule
 	result.Coverage.Ready=result.Coverage.ExpectedGrants>0 &&
 		result.Coverage.ExpectedGrants==result.Coverage.FreshGrants
+	if result.Coverage.Ready {
+		result.Coverage.AssignedGrants=result.Coverage.FreshGrants
+		result.Coverage.PrimedGrants=result.Coverage.FreshGrants
+	}
 	if !result.Coverage.Ready{return result,ErrNotReady}
 	if enabled{
 		result.Enabled=true
