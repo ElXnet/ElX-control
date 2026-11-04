@@ -1,6 +1,7 @@
 package lk
 
 import (
+ "database/sql"
  "encoding/json"
  "errors"
  "io"
@@ -10,6 +11,7 @@ import (
 
  "github.com/ElXnet/ElX-control/internal/elxcontrol/journal"
  "github.com/ElXnet/ElX-control/internal/elxcontrol/management"
+ "github.com/ElXnet/ElX-control/internal/elxcontrol/billing"
  "github.com/ElXnet/ElX-control/internal/elxcontrol/session"
 )
 type ErrorResponse struct{Error string `json:"error"`}
@@ -119,6 +121,45 @@ func Handler(s Store)http.Handler{
   entitlement,err:=s.Claim(r.Context(),account.ID,v.Invite)
   if err!=nil{failure(w,err);return}
   reply(w,http.StatusCreated,map[string]string{"entitlementId":entitlement})
+ })
+ mux.HandleFunc("POST /lk/v1/orders",func(w http.ResponseWriter,r *http.Request){
+  account,ok:=s.requireAccount(w,r,true)
+  if !ok{return}
+  var input struct {
+   RequestID string `json:"requestId"`
+   EntitlementID string `json:"entitlementId"`
+   ExtraDevices int `json:"extraDevices"`
+  }
+  if !readJSON(w,r,&input){return}
+  result,err:=billing.CreateOrder(r.Context(),s.DB,account.ID,
+   input.RequestID,input.EntitlementID,input.ExtraDevices)
+  if err!=nil{
+   code:=http.StatusConflict
+   if errors.Is(err,billing.ErrInvalid){code=http.StatusBadRequest}
+   if !errors.Is(err,billing.ErrInvalid)&&!errors.Is(err,billing.ErrConflict){
+    code=http.StatusServiceUnavailable
+   }
+   reply(w,code,ErrorResponse{Error:http.StatusText(code)});return
+  }
+  // Price is server-defined and the response contains no payment success.
+  reply(w,http.StatusCreated,result)
+ })
+ mux.HandleFunc("GET /lk/v1/orders/{id}",func(w http.ResponseWriter,r *http.Request){
+  account,ok:=s.requireAccount(w,r,false)
+  if !ok{return}
+  id:=r.PathValue("id")
+  if !isID(id){failure(w,ErrInvalid);return}
+  var result billing.Order
+  var ent sql.NullString
+  err:=s.DB.QueryRowContext(r.Context(),`SELECT id::text,request_id::text,
+    account_id::text,entitlement_id::text,amount_minor,currency,addon_devices,status,expires_at
+    FROM elx_checkout_orders WHERE id=$1 AND account_id=$2`,id,account.ID).
+   Scan(&result.ID,&result.RequestID,&result.AccountID,&ent,&result.AmountMinor,
+    &result.Currency,&result.ExtraDevices,&result.Status,&result.ExpiresAt)
+  if errors.Is(err,sql.ErrNoRows){reply(w,404,ErrorResponse{Error:"Not Found"});return}
+  if err!=nil{failure(w,err);return}
+  if ent.Valid{result.EntitlementID=ent.String}
+  reply(w,200,result)
  })
  mux.HandleFunc("GET /lk/v1/entitlements",func(w http.ResponseWriter,r *http.Request){
   account,ok:=s.requireAccount(w,r,false)
