@@ -108,7 +108,12 @@ func TestVerifiedPaymentCreatesPaidRightsAndIdempotentProfile(t *testing.T){
   param:=any(applied.EntitlementID)
   if query.out==&owners{param=account}
   if query.out==&receipts{param=order.ID}
-  if err=db.QueryRowContext(ctx,query.sql,param).Scan(query.out);err!=nil{t.Fatal(err)}
+  if query.out==&jobs{
+    err=db.QueryRowContext(ctx,query.sql).Scan(query.out)
+   }else{
+    err=db.QueryRowContext(ctx,query.sql,param).Scan(query.out)
+   }
+   if err!=nil{t.Fatal(err)}
  }
  if owners!=1||receipts!=1||jobs!=1{t.Fatalf("duplicate rights: %d %d %d",owners,receipts,jobs)}
  again,err:=ApplySignedPayment(ctx,db,signed,public)
