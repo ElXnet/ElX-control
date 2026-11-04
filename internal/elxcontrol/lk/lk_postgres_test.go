@@ -11,6 +11,7 @@ import (
  "os"
  "strings"
  "testing"
+ "fmt"
  "time"
 
  "github.com/jackc/pgx/v5"
@@ -140,5 +141,35 @@ func TestLKThrottlePersistsAcrossRequests(t *testing.T){
  }
  if _,err=store.Login(ctx,"throttle@example.org","long correct secret");err!=ErrThrottle{
   t.Fatalf("correct password bypassed database throttle: %v",err)
+ }
+}
+
+func TestLKFUPRequiresCSRFAndLimitsUserSchedules(t *testing.T){
+ ctx,store:=testLKDatabase(t)
+ entitlement:="00000000-0000-4000-8000-000000000091"
+ seedEntitlement(t,ctx,store,entitlement)
+ if _,err:=store.DB.ExecContext(ctx,`INSERT INTO elx_rate_budgets
+  (entitlement_id,up_limit,down_limit) VALUES($1,12500000,12500000)`,entitlement);err!=nil{t.Fatal(err)}
+ invite,err:=store.IssueInvite(ctx,entitlement,24*time.Hour)
+ if err!=nil{t.Fatal(err)}
+ account,err:=store.Register(ctx,"fup@example.org","strong password 2026",invite)
+ if err!=nil{t.Fatal(err)}
+ h:=Handler(store)
+ path:="/lk/v1/entitlements/"+entitlement+"/fup-schedules"
+ for i:=0;i<4;i++{
+  spec:=map[string]any{"scheduleId":fmt.Sprintf("00000000-0000-4000-8000-%012d",200+i),
+   "cadence":"day","timezone":"UTC","direction":"total","thresholdBytes":1000000,
+   "reducedUp":2500000,"reducedDown":2500000}
+  if i==0{
+   w:=lkRequest(t,h,"POST",path,spec,account.Token(),"")
+   if w.Code!=401{t.Fatalf("CSRF bypass: %d",w.Code)}
+  }
+  w:=lkRequest(t,h,"POST",path,spec,account.Token(),account.CSRF)
+  if i<3 && w.Code!=201{t.Fatalf("schedule %d: %d %s",i,w.Code,w.Body.String())}
+  if i==3 && w.Code!=400{t.Fatalf("user schedule quota bypass %d %s",w.Code,w.Body.String())}
+  if i==0{
+   replay:=lkRequest(t,h,"POST",path,spec,account.Token(),account.CSRF)
+   if replay.Code!=200{t.Fatalf("idempotent retry: %d %s",replay.Code,replay.Body.String())}
+  }
  }
 }
