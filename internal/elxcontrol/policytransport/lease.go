@@ -89,6 +89,9 @@ func (s *server) lease(ctx context.Context,in *wrapperspb.BytesValue)(*wrappersp
 		WHERE g.node_id=$1 AND g.resource_id=$2 AND e.enabled=true
 		  AND e.valid_until>clock_timestamp()
 		  AND g.committed_up>0 AND g.committed_down>0
+		  AND (SELECT count(*) FROM elx_core_identities c
+			WHERE c.node_id=g.node_id AND c.public_key=g.barrier_public_key
+			  AND c.revoked=false)=1
 	`,reqNodeID(binding.Target.NodeID),reqNodeID(req.ResourceID)).
 		Scan(&entitlement,&ceilingUp,&ceilingDown,&storedEpoch,&pinnedKey)
 	if errors.Is(err,sql.ErrNoRows){return nil,status.Error(codes.FailedPrecondition,"subscription not eligible for a Control lease")}
