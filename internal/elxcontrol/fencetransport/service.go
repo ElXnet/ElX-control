@@ -40,7 +40,7 @@ func (s *receiver) submit(ctx context.Context, in *wrapperspb.BytesValue) (*empt
 	if len(in.GetValue())>1024 {return nil,status.Error(codes.InvalidArgument,"session receipt too large")}
 	var payload Receipt
 	if json.Unmarshal(in.GetValue(),&payload)!=nil || payload.Fence.NodeID!=nodeID ||
-		payload.Fence.OwnerID==uuid.Nil || payload.Fence.Incarnation==uuid.Nil ||
+		payload.Fence.OwnerID==uuid.Nil || payload.Fence.ProfileID==uuid.Nil || payload.Fence.Incarnation==uuid.Nil ||
 		payload.Fence.Generation<=0 || len(payload.Signature)!=ed25519.SignatureSize {
 		return nil,status.Error(codes.PermissionDenied,"session receipt does not match authenticated node")
 	}
