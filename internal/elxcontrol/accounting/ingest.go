@@ -84,13 +84,19 @@ func ingestSample(ctx context.Context, tx *sql.Tx, s Sample) (Receipt, error) {
 	key := []any{s.NodeID, s.ExecutorID, s.Incarnation, s.AccountingID, s.Generation, s.PeriodID}
 	const where = `node_id=$1 AND executor_id=$2 AND incarnation=$3 AND accounting_id=$4 AND generation=$5 AND period_id=$6`
 	var seq, up, down int64
-	err = tx.QueryRowContext(ctx, `SELECT sequence,up_bytes,down_bytes FROM elx_accounting_streams
-		WHERE `+where+` FOR UPDATE`, key...).Scan(&seq, &up, &down)
+	var closed bool
+	err = tx.QueryRowContext(ctx, `SELECT sequence,up_bytes,down_bytes,closed FROM elx_accounting_streams
+		WHERE `+where+` FOR UPDATE`, key...).Scan(&seq, &up, &down, &closed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Receipt{}, ErrStream
 	}
 	if err != nil {
 		return Receipt{}, err
+	}
+	if closed {
+		// Rollover seals the previous watermark. Accepting late old-period
+		// counters would count them a second time in the new period.
+		return Receipt{}, ErrStream
 	}
 	if s.Sequence <= seq {
 		if s.Sequence == seq && (s.UpBytes != up || s.DownBytes != down) {
