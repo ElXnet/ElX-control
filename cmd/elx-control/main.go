@@ -17,7 +17,7 @@ import (
 
 func run(ctx context.Context, args []string, dsn string) error {
 	if len(args) == 0 {
-		return errors.New("usage: elx-control migrate|serve-policy|serve-agent|serve-usage|enqueue-policy|apply-policy|policy-public-key|read-usage|collect-usage|collect-current|reconcile-fup|serve-fup|advance-periods")
+		return errors.New("usage: elx-control migrate|serve-policy|serve-agent|serve-usage|drain-profile|enqueue-policy|apply-policy|policy-public-key|read-usage|collect-usage|collect-current|reconcile-fup|serve-fup|advance-periods")
 	}
 	switch args[0] {
 	case "policy-public-key":
@@ -28,6 +28,8 @@ func run(ctx context.Context, args []string, dsn string) error {
 		return serveAgent(ctx, args[1:])
 	case "serve-usage":
 		return serveUsage(ctx, args[1:])
+	case "drain-profile":
+		return drainProfile(ctx, args[1:])
 	case "apply-policy":
 		if len(args) != 1 {
 			return errors.New("usage: elx-control apply-policy")
