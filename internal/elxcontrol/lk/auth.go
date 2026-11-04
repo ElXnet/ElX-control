@@ -38,6 +38,10 @@ func derive(password string,salt []byte)([]byte,error){
  if len(salt)!=16{return nil,ErrInvalid}
  return pbkdf2.Key(sha256.New,password,salt,passwordIterations,32)
 }
+func deriveWithIterations(password string,salt []byte,iterations int)([]byte,error){
+ if len(salt)!=16||iterations<passwordIterations||iterations>2000000{return nil,ErrInvalid}
+ return pbkdf2.Key(sha256.New,password,salt,iterations,32)
+}
 func checkPassword(password string,salt,hash []byte)bool{
  if len(salt)!=16||len(hash)!=32{return false}
  got,err:=derive(password,salt)
