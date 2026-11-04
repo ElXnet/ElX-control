@@ -39,26 +39,26 @@ jobs:
 
     steps:
       - name: Checkout ElX-control integration branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: ElX-control
 
       - name: Checkout ElX-ui compatibility mirror
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ElXnet/ElX-ui
           ref: elx-control-journal
           path: ElX-ui
 
       - name: Checkout ElXray integration branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ElXnet/ElXray
           ref: restrict-runtime-unlimited
           path: ElXray
 
       - name: Setup Go toolchain
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: ElX-control/go.mod
           cache: false
