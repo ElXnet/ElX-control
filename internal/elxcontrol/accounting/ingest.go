@@ -126,7 +126,7 @@ func ingestSample(ctx context.Context, tx *sql.Tx, s Sample) (Receipt, error) {
 			return Receipt{}, ErrSample
 		}
 		_, err := tx.ExecContext(ctx, `UPDATE elx_accounting_streams
-			SET sequence=$7,up_bytes=$8,down_bytes=$9,primed=true WHERE `+where,
+			SET sequence=$7,up_bytes=$8,down_bytes=$9,primed=true,last_received_at=clock_timestamp() WHERE `+where,
 			append(key, s.Sequence, s.UpBytes, s.DownBytes)...)
 		if err != nil { return Receipt{}, err }
 		return Receipt{Sequence: s.Sequence}, nil
@@ -150,7 +150,7 @@ func ingestSample(ctx context.Context, tx *sql.Tx, s Sample) (Receipt, error) {
 	}
 
 	_, err = tx.ExecContext(ctx, `UPDATE elx_accounting_streams
-		SET sequence=$7,up_bytes=$8,down_bytes=$9 WHERE `+where, append(key, s.Sequence, s.UpBytes, s.DownBytes)...)
+		SET sequence=$7,up_bytes=$8,down_bytes=$9,last_received_at=clock_timestamp() WHERE `+where, append(key, s.Sequence, s.UpBytes, s.DownBytes)...)
 	if err != nil {
 		return Receipt{}, err
 	}
