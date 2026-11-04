@@ -211,6 +211,22 @@ func CompleteCoreRotation(ctx context.Context,db *sql.DB,id string)(CoreRotation
  _,err=tx.ExecContext(ctx,`UPDATE elx_rate_grants SET epoch=epoch+1,
   barrier_public_key=$2 WHERE node_id=$1`,out.NodeID,newKey)
  if err!=nil{return out,err}
+ // An operator-enrolled paid node must follow the same pinned incarnation
+ // as its live rate grants. Leaving this at the retired boot can cause a
+ // future billing worker to publish an obsolete core identity.
+ _,err=tx.ExecContext(ctx,`UPDATE elx_node_inventory
+   SET incarnation=$2 WHERE node_id=$1 AND incarnation=$3`,
+   out.NodeID,out.NewIncarnation,out.OldIncarnation)
+ if err!=nil{return out,err}
+ // Preserve paid-profile node/resource ownership while advancing its
+ // expected policy epoch. The next policy deployment still requires a
+ // verified core readback; an epoch bump is never an automatic enable.
+ _,err=tx.ExecContext(ctx,`UPDATE elx_paid_profile_nodes pn
+   SET epoch=g.epoch
+   FROM elx_rate_grants g
+   WHERE pn.node_id=$1 AND pn.node_id=g.node_id
+     AND pn.resource_id=g.resource_id`,out.NodeID)
+ if err!=nil{return out,err}
  _,err=tx.ExecContext(ctx,`UPDATE elx_core_rotations
   SET state='completed',completed_at=clock_timestamp() WHERE id=$1`,id)
  if err!=nil{return out,err}
