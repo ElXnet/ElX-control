@@ -1,5 +1,51 @@
 # Сквозная проверка применения политики ElX
 
+## Удалённый сбор подписанного трафика (mTLS)
+
+Теперь транспорт `elx.node.v1.SignedAccounting` регистрируется на **том же защищённом gRPC-сервере**, что `serve-policy`. Узел работает только с локальным API ElXray и mTLS-клиентским сертификатом. Удалённой ноде **не требуется DSN PostgreSQL**.
+
+До запуска Control должен доверенно зарегистрировать запись `elx_core_identities`, текущий `elx_period_schedules`, `elx_accounting_streams`, `elx_accounting_assignments` и `elx_rate_budgets`. Нода не может создать себе эти назначения. В конфигурационном файле узла `/etc/elx/usage-bindings.json` указываются только UUID уже существующей привязки:
+
+```json
+[
+  {
+    "NodeID": "UUID_НОДЫ",
+    "ExecutorID": "UUID_ИСПОЛНИТЕЛЯ",
+    "Incarnation": "UUID_ЗАПУСКА_ELXRAY",
+    "AccountingID": "UUID_ПОТОКА_УЧЁТА",
+    "Generation": 1,
+    "ScheduleID": "UUID_РАСПИСАНИЯ_FUP"
+  }
+]
+```
+
+Команды для **Linux / WSL**, при установленном бинарнике `elx-control`:
+
+```bash
+export ELX_POLICY_CONTROL="control.example:443"
+export ELX_TLS_CERT="/etc/elx/node.crt"
+export ELX_TLS_KEY="/etc/elx/node.key"
+export ELX_TLS_CA="/etc/elx/node-ca.crt"
+export ELXRAY_POLICY_SOCKET="/run/elxray/policy.sock"
+export ELX_USAGE_BINDINGS="/etc/elx/usage-bindings.json"
+
+# Одна подписанная выборка и результат её приёма Control
+./elx-control serve-usage -once
+
+# Непрерывный сбор каждые 5 секунд
+./elx-control serve-usage -interval 5s
+```
+
+Путь к локальному API ElXray должен быть доступен только доверенному supervisor. Не передавайте клиенту секреты nodelink, mTLS или PostgreSQL. Control генерирует одноразовый 128-битный nonce, ядро подписывает ответ Ed25519, Control проверяет его закреплённым публичным ключом и в одной транзакции погашает challenge и записывает прирост трафика. Потерянный ACK обрабатывается новым challenge и накопительным счётчиком: повторно начислять байты нельзя.
+
+### Важные ограничения
+
+- Тесты проверяют реальный TLS 1.3, отклонение чужого узла, подмены ключа и повторного evidence, а также PostgreSQL-учёт двух нод. Это не нагрузочное испытание на двух физических компьютерах.
+- При отсутствии связи Control **не знает фактический текущий расход трафика удалённой ноды**. Поэтому пока в самом ElXray нет истекающих локальных lease/политик, нельзя обещать мгновенное глобальное соблюдение нового FUP при сетевом разделении.
+- Подтверждение завершения сессии передаётся через `elx.node.v1.SessionFence` только при наличии подписанного ядром proof. Схема версии 2 связывает `OwnerID + ProfileID + Generation + NodeID + Incarnation`. **ElXray ещё не формирует этот receipt после реального запрета новых VLESS-потоков и полного drain**, поэтому этот путь нельзя считать готовым освобождением занятого слота.
+- Миграция `011_session_profile_binding.sql` оставляет существующие записи с неизвестным `ProfileID` занятыми до достоверного восстановления; не освобождайте их принудительно по таймеру.
+
+
 ## Запуск на Windows (PowerShell + WSL)
 
 Не нужен VPS. Требуются Git for Windows, работающая Ubuntu в WSL, Go по `go.mod` (на момент добавления запуска — 1.27.3, `GOTOOLCHAIN=auto`), `gcc`, `python3`, `openssl`, а также Docker Desktop с включённой интеграцией в WSL. Команды ниже запускаются в **PowerShell на Windows**:
