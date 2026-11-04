@@ -63,7 +63,24 @@ if ($LASTEXITCODE -ne 0 -or -not $pathOutput) {
 $linuxControl = ([string]($pathOutput | Select-Object -Last 1)).Trim()
 if (-not $linuxControl.StartsWith('/')) { throw "Unexpected translated path: '$linuxControl'" }
 if ($linuxControl.Contains("'")) { throw 'Workspace path cannot contain an apostrophe.' }
-$linuxCommand = "set -euo pipefail; cd '$linuxControl'; command -v go; command -v python3; command -v openssl; command -v gcc; command -v docker; docker info >/dev/null; bash scripts/elx-test-local.sh"
+# Check dependencies explicitly so a missing executable is not a silent exit 1.
+$checks = @'
+set -euo pipefail
+for tool in go git python3 openssl gcc docker; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "MISSING: $tool (install it inside the selected WSL distribution)" >&2
+        exit 1
+    fi
+    echo "OK: $tool"
+done
+if ! docker info >/dev/null 2>&1; then
+    echo "Docker Engine is unavailable from WSL. Start Docker Desktop and enable WSL Integration." >&2
+    exit 1
+fi
+echo "OK: Docker Engine"
+go version
+'@
+$linuxCommand = "cd '$linuxControl'; " + $checks + [Environment]::NewLine + "bash scripts/elx-test-local.sh"
 Write-Host "Running standalone ElX Control tests via WSL in: $linuxControl" -ForegroundColor Cyan
 & wsl.exe --distribution $Distro --exec bash -lc $linuxCommand
 if ($LASTEXITCODE -ne 0) { throw "ElX tests failed (exit code $LASTEXITCODE); inspect the WSL output above." }
