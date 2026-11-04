@@ -143,8 +143,8 @@ func (s SQLStore) createSchedule(ctx context.Context, entitlement string, spec S
  VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,id,entitlement,out.StartsAt,out.EndsAt,spec.Direction,spec.ThresholdBytes,spec.ReducedUp,spec.ReducedDown)
  if err!=nil{return out,err}
  _,err=tx.ExecContext(ctx,`INSERT INTO elx_period_schedules
- (id,entitlement_id,cadence,timezone_name,current_period_id)
- VALUES($1,$2,$3,$4,$5)`,spec.ScheduleID,entitlement,spec.Cadence,spec.Timezone,id)
+ (id,entitlement_id,cadence,timezone_name,current_period_id,enabled)
+ VALUES($1,$2,$3,$4,$5,false)`,spec.ScheduleID,entitlement,spec.Cadence,spec.Timezone,id)
  if err!=nil{return out,err}
  _,err=tx.ExecContext(ctx,"UPDATE elx_usage_periods SET schedule_id=$2 WHERE id=$1",id,spec.ScheduleID)
  if err!=nil{return out,err}

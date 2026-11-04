@@ -76,6 +76,7 @@ type Period struct {
 	ReducedUp int64 `json:"reducedUp"`
 	ReducedDown int64 `json:"reducedDown"`
 	FUPActive bool `json:"fupActive"`
+	ScheduleEnabled bool `json:"scheduleEnabled"`
 	Cadence string `json:"cadence,omitempty"`
 	Timezone string `json:"timezone,omitempty"`
 }
@@ -203,11 +204,11 @@ func (s SQLStore) Get(ctx context.Context, id string) (Detail, error) {
 	if err!=nil{return out,err}
 	if len(out.Grants)>1000{return out,errors.New("grant listing exceeds management safety bound")}
 
-	rows,err=s.DB.QueryContext(ctx, "SELECT p.id::text,p.starts_at,p.ends_at,p.direction,p.threshold_bytes,p.up_bytes,p.down_bytes,p.reduced_up,p.reduced_down,(f.period_id IS NOT NULL),COALESCE(s.cadence,''),COALESCE(s.timezone_name,''),COALESCE(s.id::text,'') FROM elx_usage_periods p LEFT JOIN elx_fup_events f ON f.period_id=p.id LEFT JOIN elx_period_schedules s ON s.id=p.schedule_id WHERE p.entitlement_id=$1 ORDER BY p.starts_at DESC,p.id LIMIT 101",id)
+	rows,err=s.DB.QueryContext(ctx, "SELECT p.id::text,p.starts_at,p.ends_at,p.direction,p.threshold_bytes,p.up_bytes,p.down_bytes,p.reduced_up,p.reduced_down,(f.period_id IS NOT NULL),COALESCE(s.cadence,''),COALESCE(s.timezone_name,''),COALESCE(s.id::text,''),COALESCE(s.enabled,true) FROM elx_usage_periods p LEFT JOIN elx_fup_events f ON f.period_id=p.id LEFT JOIN elx_period_schedules s ON s.id=p.schedule_id WHERE p.entitlement_id=$1 ORDER BY p.starts_at DESC,p.id LIMIT 101",id)
 	if err!=nil{return out,err}
 	for rows.Next(){
 		var v Period
-		if err:=rows.Scan(&v.ID,&v.StartsAt,&v.EndsAt,&v.Direction,&v.Threshold,&v.UpBytes,&v.DownBytes,&v.ReducedUp,&v.ReducedDown,&v.FUPActive,&v.Cadence,&v.Timezone,&v.ScheduleID);err!=nil{rows.Close();return out,err}
+		if err:=rows.Scan(&v.ID,&v.StartsAt,&v.EndsAt,&v.Direction,&v.Threshold,&v.UpBytes,&v.DownBytes,&v.ReducedUp,&v.ReducedDown,&v.FUPActive,&v.Cadence,&v.Timezone,&v.ScheduleID,&v.ScheduleEnabled);err!=nil{rows.Close();return out,err}
 		out.Periods=append(out.Periods,v)
 	}
 	err=rows.Err();rows.Close()
@@ -218,7 +219,7 @@ func (s SQLStore) Get(ctx context.Context, id string) (Detail, error) {
 	rows,err=s.DB.QueryContext(ctx,`SELECT s.id::text
 		FROM elx_period_schedules s JOIN elx_usage_periods p
 		ON p.id=s.current_period_id
-		WHERE s.entitlement_id=$1 AND s.enabled
+		WHERE s.entitlement_id=$1
 		AND p.starts_at<=clock_timestamp() AND p.ends_at>clock_timestamp()
 		ORDER BY s.id LIMIT 101`,id)
 	if err!=nil{return out,err}

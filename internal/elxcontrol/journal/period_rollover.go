@@ -46,9 +46,6 @@ func AdvancePeriod(ctx context.Context, db *sql.DB, scheduleID uuid.UUID, now ti
 	if err != nil {
 		return out, err
 	}
-	if !enabled {
-		return out, tx.Commit()
-	}
 
 	var starts, ends time.Time
 	var direction string
@@ -160,7 +157,7 @@ func AdvanceDue(ctx context.Context, db *sql.DB, now time.Time) (int, error) {
 		return 0, ErrPeriod
 	}
 	rows, err := db.QueryContext(ctx, `SELECT id FROM elx_period_schedules
-		WHERE enabled=true ORDER BY id`)
+		ORDER BY id`)
 	if err != nil {
 		return 0, err
 	}

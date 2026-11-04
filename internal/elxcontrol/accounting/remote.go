@@ -53,7 +53,7 @@ func remoteBindingPeriod(ctx context.Context, tx *sql.Tx, b RemoteBinding) (uuid
 	var ends time.Time
 	err := tx.QueryRowContext(ctx, `SELECT s.current_period_id,p.ends_at
 		FROM elx_period_schedules s JOIN elx_usage_periods p ON p.id=s.current_period_id
-		WHERE s.id=$1 AND s.enabled=true AND p.starts_at<=clock_timestamp()
+		WHERE s.id=$1 AND p.starts_at<=clock_timestamp()
 		  AND p.ends_at>clock_timestamp() FOR SHARE OF s`, b.ScheduleID).Scan(&period, &ends)
 	if errors.Is(err, sql.ErrNoRows) {
 		return uuid.Nil, time.Time{}, ErrStream

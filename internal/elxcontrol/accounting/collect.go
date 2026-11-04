@@ -72,7 +72,7 @@ func CollectCurrent(ctx context.Context, db *sql.DB, authenticatedNode uuid.UUID
 	defer tx.Rollback()
 	err = tx.QueryRowContext(ctx, `SELECT s.current_period_id
 		FROM elx_period_schedules s JOIN elx_usage_periods p ON p.id=s.current_period_id
-		WHERE s.id=$1 AND s.enabled=true AND p.starts_at<=clock_timestamp()
+		WHERE s.id=$1 AND p.starts_at<=clock_timestamp()
 			AND p.ends_at>clock_timestamp()
 		FOR SHARE OF s`, schedule).Scan(&a.PeriodID)
 	if errors.Is(err, sql.ErrNoRows) {

@@ -166,7 +166,7 @@ func (s SQLStore) UsageCoverage(ctx context.Context,entitlement,schedule string)
 	var period uuid.UUID
 	err:=s.DB.QueryRowContext(ctx,`SELECT s.current_period_id FROM elx_period_schedules s
 		JOIN elx_usage_periods p ON p.id=s.current_period_id
-		WHERE s.id=$1 AND s.entitlement_id=$2 AND s.enabled
+		WHERE s.id=$1 AND s.entitlement_id=$2
 		AND p.starts_at<=clock_timestamp() AND p.ends_at>clock_timestamp()`,
 		schedule,entitlement).Scan(&period)
 	if errors.Is(err,sql.ErrNoRows){return out,ErrNotFound}
