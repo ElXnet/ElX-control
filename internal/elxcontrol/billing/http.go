@@ -66,13 +66,8 @@ func statusCode(err error)int{
  }
 }
 
-// Handler is bound ONLY to Control's 0600 Unix management socket, never
-// the customer website. The payment reader is a separate service with the
-// PRIVATE signing key; the panel has neither that key nor a payment API.
-func Handler(db *sql.DB,public ed25519.PublicKey,
- policySource func()([]policytransport.Binding,error))http.Handler{
- mux:=http.NewServeMux()
- mux.HandleFunc("POST /billing/v1/confirmed",func(w http.ResponseWriter,r *http.Request){
+func paymentConfirm(db *sql.DB,public ed25519.PublicKey)http.HandlerFunc{
+ return func(w http.ResponseWriter,r *http.Request){
   if len(public)!=ed25519.PublicKeySize{
    respond(w,503,map[string]string{"error":"payment verifier not configured"});return
   }
@@ -81,7 +76,25 @@ func Handler(db *sql.DB,public ed25519.PublicKey,
   result,err:=ApplySignedPayment(r.Context(),db,signed,public)
   if err!=nil{respond(w,statusCode(err),map[string]string{"error":"payment cannot be applied"});return}
   respond(w,200,result)
- })
+ }
+}
+
+// PaymentIngressHandler has exactly ONE operation. Mount it on a different
+// 0600 Unix socket from management: the separate bank/payment verifier must
+// NEVER inherit the administrative socket or node provisioning capabilities.
+func PaymentIngressHandler(db *sql.DB,public ed25519.PublicKey)http.Handler{
+ mux:=http.NewServeMux()
+ mux.HandleFunc("POST /billing/v1/confirmed",paymentConfirm(db,public))
+ return mux
+}
+
+// Handler is bound ONLY to Control's 0600 Unix management socket, never
+// the customer website. The payment reader is a separate service with the
+// PRIVATE signing key; the panel has neither that key nor a payment API.
+func Handler(db *sql.DB,public ed25519.PublicKey,
+ policySource func()([]policytransport.Binding,error))http.Handler{
+ mux:=http.NewServeMux()
+ mux.HandleFunc("POST /billing/v1/confirmed",paymentConfirm(db,public))
  mux.HandleFunc("POST /provision/v1/claim",func(w http.ResponseWriter,r *http.Request){
   // Exactly one short-lived claim; duplicate polling never returns multiple
   // active leases for the same job. No secrets go through public panel API.
