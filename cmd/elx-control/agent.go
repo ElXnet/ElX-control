@@ -122,6 +122,23 @@ func serveAgent(ctx context.Context, args []string) error {
 				return fmt.Errorf("session drain failed closed: %w", drainErr)
 			}
 		}
+		// A committed reduction is released ONLY after ElXray proves that
+		// all traffic authorized under the prior higher limit has drained.
+		barrierCtx, barrierCancel := context.WithTimeout(ctx, 45*time.Second)
+		barrierErr := policytransport.ApplyRateBarrier(barrierCtx, conn, core)
+		barrierCancel()
+		if ctx.Err()!=nil {return nil}
+		if barrierErr!=nil {
+			switch status.Code(barrierErr) {
+			case codes.NotFound:
+				// No applied rate move awaiting a separate core barrier.
+			case codes.Unavailable,codes.DeadlineExceeded,codes.FailedPrecondition:
+				// Keep old speed reservations occupied until a valid proof.
+				fmt.Fprintln(os.Stderr,"ElX rate reduction still conservatively reserved:",barrierErr)
+			default:
+				return fmt.Errorf("rate barrier failed closed: %w",barrierErr)
+			}
+		}
 		select {
 		case <-ctx.Done():
 			return nil
