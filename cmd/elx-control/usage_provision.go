@@ -60,3 +60,22 @@ func activateFUP(ctx context.Context,db *sql.DB,args []string)error{
 	if err!=nil{return fmt.Errorf("activate signed FUP schedule: %w",err)}
 	return json.NewEncoder(os.Stdout).Encode(result)
 }
+
+ // autoProvisionUsage reads the same trusted policy manifest as serve-policy,
+ // so a subscription/resource pair is never typed separately by an operator.
+func autoProvisionUsage(ctx context.Context,db *sql.DB,args []string)error{
+	fs:=flag.NewFlagSet("auto-provision-usage",flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	entitlement:=fs.String("entitlement","","purchased entitlement UUID")
+	schedule:=fs.String("schedule","","FUP schedule UUID")
+	if err:=fs.Parse(args);err!=nil{return err}
+	if fs.NArg()!=0||*entitlement==""||*schedule=="" {
+		return errors.New("auto-provision-usage requires -entitlement and -schedule")
+	}
+	bindings,err:=loadBindings()
+	if err!=nil{return fmt.Errorf("trusted policy manifest unavailable: %w",err)}
+	result,err:=(management.SQLStore{DB:db}).AutoProvisionFromBindings(
+		ctx,*entitlement,*schedule,bindings)
+	if err!=nil{return fmt.Errorf("automatic signed usage enrollment failed: %w",err)}
+	return json.NewEncoder(os.Stdout).Encode(result)
+}
