@@ -6,6 +6,10 @@ import (
  "crypto/rand"
  "database/sql"
  "encoding/hex"
+ "bytes"
+ "encoding/json"
+ "net/http"
+ "net/http/httptest"
  "errors"
  "os"
  "testing"
@@ -234,4 +238,48 @@ func TestPaidProfileEnableACKCannotRaceWithCoreRotation(t *testing.T) {
  if err=db.QueryRowContext(ctx,"SELECT status FROM elx_paid_profiles WHERE id=$1",
  applied.ProfileID).Scan(&status);err!=nil{t.Fatal(err)}
  if status!="staged"{t.Fatalf("stale ACK exposed paid profile as active: %s",status)}
+}
+
+func TestSignedPaymentIngressCreditsOnceWithoutAdminAccess(t *testing.T){
+ ctx,db:=billingPostgres(t)
+ account:=billingAccount(t,ctx,db)
+ order,err:=CreateOrder(ctx,db,account,uuid.NewString(),"",1)
+ if err!=nil{t.Fatal(err)}
+ pub,priv,err:=ed25519.GenerateKey(nil)
+ if err!=nil{t.Fatal(err)}
+ event:=confirmed(t,order,pub,priv)
+ ingress:=PaymentIngressHandler(db,pub)
+ call:=func()(int,Applied){
+  raw,err:=json.Marshal(event)
+  if err!=nil{t.Fatal(err)}
+  req:=httptest.NewRequest(http.MethodPost,"/billing/v1/confirmed",bytes.NewReader(raw))
+  req.Header.Set("Content-Type","application/json")
+  response:=httptest.NewRecorder()
+  ingress.ServeHTTP(response,req)
+  var result Applied
+  if response.Code==http.StatusOK{
+   if err:=json.Unmarshal(response.Body.Bytes(),&result);err!=nil{t.Fatal(err)}
+  }
+  return response.Code,result
+ }
+ status,first:=call()
+ if status!=http.StatusOK||first.EntitlementID==""||first.ProfileID==""||
+  first.AlreadyApplied{t.Fatalf("signed payment ingress: %d %+v",status,first)}
+ status,repeated:=call()
+ if status!=http.StatusOK||!repeated.AlreadyApplied||
+  repeated.EntitlementID!=first.EntitlementID||repeated.ProfileID!=first.ProfileID{
+  t.Fatalf("payment replay created duplicate rights: %d %+v",status,repeated)
+ }
+ var receipts,profileJobs int
+ if err=db.QueryRowContext(ctx,`SELECT count(*) FROM elx_payment_receipts
+  WHERE order_id=$1`,order.ID).Scan(&receipts);err!=nil{t.Fatal(err)}
+ if err=db.QueryRowContext(ctx,`SELECT count(*) FROM elx_profile_provision_jobs
+  WHERE profile_id=$1`,first.ProfileID).Scan(&profileJobs);err!=nil{t.Fatal(err)}
+ if receipts!=1||profileJobs!=1{t.Fatalf("duplicate durable writes: receipts=%d jobs=%d",receipts,profileJobs)}
+ request:=httptest.NewRequest(http.MethodPost,"/provision/v1/claim",nil)
+ recorder:=httptest.NewRecorder()
+ ingress.ServeHTTP(recorder,request)
+ if recorder.Code!=http.StatusNotFound{
+  t.Fatalf("payment verifier could claim VPN profiles: %d",recorder.Code)
+ }
 }
