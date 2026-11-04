@@ -41,6 +41,9 @@ var periodScheduleSchema string
 //go:embed 010_remote_usage_challenges.sql
 var remoteUsageChallengeSchema string
 
+//go:embed 011_session_profile_binding.sql
+var sessionProfileSchema string
+
 // Migrate installs the journal schema in the Control database. The database
 // role must have DDL privileges in its configured schema.
 func Migrate(ctx context.Context, db *sql.DB) error {
@@ -57,7 +60,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	)`); err != nil {
 		return err
 	}
-	for i, ddl := range []string{schema, sessionSchema, deviceProofSchema, accountingSchema, rateGrantSchema, sessionFenceSchema, coreIdentitySchema, accountingAssignmentSchema, periodScheduleSchema, remoteUsageChallengeSchema} {
+	for i, ddl := range []string{schema, sessionSchema, deviceProofSchema, accountingSchema, rateGrantSchema, sessionFenceSchema, coreIdentitySchema, accountingAssignmentSchema, periodScheduleSchema, remoteUsageChallengeSchema, sessionProfileSchema} {
 		if err := applyMigration(ctx, tx, i+1, ddl); err != nil {
 			return err
 		}
