@@ -17,7 +17,7 @@ import (
 
 func run(ctx context.Context, args []string, dsn string) error {
 	if len(args) == 0 {
-		return errors.New("usage: elx-control migrate|issue-invite|serve-management|serve-policy|serve-agent|serve-usage|drain-profile|enqueue-drain|enqueue-policy|apply-policy|policy-public-key|read-usage|collect-usage|collect-current|reconcile-fup|serve-fup|advance-periods")
+		return errors.New("usage: elx-control migrate|issue-invite|serve-management|serve-policy|serve-agent|serve-usage|drain-profile|enqueue-drain|enqueue-policy|apply-policy|policy-public-key|read-usage|collect-usage|collect-current|provision-usage|usage-coverage|reconcile-fup|serve-fup|advance-periods")
 	}
 	switch args[0] {
 	case "policy-public-key":
@@ -35,11 +35,11 @@ func run(ctx context.Context, args []string, dsn string) error {
 			return errors.New("usage: elx-control apply-policy")
 		}
 		return applyPolicy(ctx)
-	case "migrate", "issue-invite", "serve-management", "serve-policy", "enqueue-policy", "enqueue-drain", "collect-usage", "collect-current", "reconcile-fup", "serve-fup", "advance-periods":
+	case "migrate", "issue-invite", "serve-management", "serve-policy", "enqueue-policy", "enqueue-drain", "collect-usage", "collect-current", "provision-usage", "usage-coverage", "reconcile-fup", "serve-fup", "advance-periods":
 	default:
 		return errors.New("unknown elx-control command")
 	}
-	if args[0] != "issue-invite" && args[0] != "enqueue-policy" && args[0] != "enqueue-drain" && args[0] != "collect-usage" && args[0] != "collect-current" && args[0] != "reconcile-fup" && args[0] != "serve-fup" && args[0] != "advance-periods" && len(args) != 1 {
+	if args[0] != "issue-invite" && args[0] != "enqueue-policy" && args[0] != "enqueue-drain" && args[0] != "collect-usage" && args[0] != "collect-current" && args[0] != "provision-usage" && args[0] != "usage-coverage" && args[0] != "reconcile-fup" && args[0] != "serve-fup" && args[0] != "advance-periods" && len(args) != 1 {
 		return errors.New("unexpected arguments")
 	}
 	if dsn == "" {
@@ -73,6 +73,10 @@ func run(ctx context.Context, args []string, dsn string) error {
 		return collectUsage(ctx, db, args[1:])
 	case "collect-current":
 		return collectCurrent(ctx, db, args[1:])
+	case "provision-usage":
+		return provisionUsage(ctx, db, args[1:])
+	case "usage-coverage":
+		return usageCoverage(ctx, db, args[1:])
 	case "reconcile-fup", "serve-fup":
 		return runFUP(ctx, db, args[1:], args[0] == "serve-fup")
 	case "advance-periods":
