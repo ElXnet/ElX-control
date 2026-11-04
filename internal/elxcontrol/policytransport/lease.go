@@ -89,6 +89,12 @@ func (s *server) lease(ctx context.Context,in *wrapperspb.BytesValue)(*wrappersp
 		WHERE g.node_id=$1 AND g.resource_id=$2 AND e.enabled=true
 		  AND e.valid_until>clock_timestamp()
 		  AND g.committed_up>0 AND g.committed_down>0
+		  AND NOT EXISTS(SELECT 1 FROM elx_core_rotations rot
+			 WHERE rot.node_id=g.node_id AND rot.state='quiescing')
+		  AND (NOT EXISTS(SELECT 1 FROM elx_paid_profiles p
+			 WHERE p.entitlement_id=e.id) OR
+		       EXISTS(SELECT 1 FROM elx_paid_profiles p
+			 WHERE p.entitlement_id=e.id AND p.status='active'))
 		  AND (SELECT count(*) FROM elx_core_identities c
 			WHERE c.node_id=g.node_id AND c.public_key=g.barrier_public_key
 			  AND c.revoked=false)=1
