@@ -30,6 +30,11 @@ func (f *fakeStore) QueueDrain(_ context.Context,entitlement,owner string)error{
 	if entitlement!=testEntitlement||owner!=testOwner{return ErrNotFound}
 	return f.err
 }
+func (f *fakeStore) RevokeDevice(_ context.Context,entitlement,device string)(RevokeResult,error) {
+	if entitlement!=testEntitlement || device!=testOther {return RevokeResult{},ErrNotFound}
+	if f.err!=nil {return RevokeResult{},f.err}
+	return RevokeResult{DeviceID:device,Revoked:true,DrainQueued:1},nil
+}
 func (f *fakeStore) Reconcile(_ context.Context,id string)(ReconcileResult,error){
 	f.reconcileCalls++
 	return ReconcileResult{EntitlementID:id,Active:true,Pending:2},f.err
@@ -86,4 +91,19 @@ func TestFUPReconcileIsExplicit(t *testing.T){
 	w:=serve(t,f,"POST","/v1/entitlements/"+testEntitlement+"/reconcile-fup")
 	if w.Code!=200||!strings.Contains(w.Body.String(),`"pending":2`){t.Fatalf("FUP %d %s",w.Code,w.Body.String())}
 	if f.reconcileCalls!=1{t.Fatalf("FUP calls=%d",f.reconcileCalls)}
+}
+
+func TestDeviceRevokeMethodAndOwnership(t *testing.T){
+	f:=&fakeStore{}
+	path:="/v1/entitlements/"+testEntitlement+"/devices/"+testOther+"/revoke"
+	w:=serve(t,f,"GET",path)
+	if w.Code!=405 {t.Fatalf("GET was allowed to revoke: %d",w.Code)}
+	w=serve(t,f,"POST",path)
+	if w.Code!=202 || !strings.Contains(w.Body.String(),`"drainQueued":1`) || strings.Contains(w.Body.String(),`"released":true`) {
+		t.Fatalf("unsafe revoke response %d %s",w.Code,w.Body.String())
+	}
+	w=serve(t,f,"POST","/v1/entitlements/"+testOther+"/devices/"+testOther+"/revoke")
+	if w.Code!=404 {t.Fatalf("cross-entitlement revoke: %d",w.Code)}
+	w=serve(t,f,"POST","/v1/entitlements/"+testEntitlement+"/devices/bad/revoke")
+	if w.Code!=400 {t.Fatalf("bad device id: %d",w.Code)}
 }
