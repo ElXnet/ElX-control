@@ -100,6 +100,7 @@ type Store interface {
 	List(context.Context, string, int) (Page, error)
 	Get(context.Context, string) (Detail, error)
 	QueueDrain(context.Context, string, string) error
+	RevokeDevice(context.Context, string, string) (RevokeResult, error)
 	Reconcile(context.Context, string) (ReconcileResult, error)
 }
 
@@ -257,6 +258,14 @@ func Handler(store Store) http.Handler {
 		if err:=store.QueueDrain(r.Context(),id,owner);err!=nil{writeErr(w,errorStatus(err));return}
 		// The slot is NOT released here. A signed core fence is still required.
 		writeJSON(w,http.StatusAccepted,map[string]string{"state":"draining","release":"pending-signed-core-fence"})
+	})
+	mux.HandleFunc("POST /v1/entitlements/{id}/devices/{device}/revoke",func(w http.ResponseWriter,r *http.Request){
+		id,device:=r.PathValue("id"),r.PathValue("device")
+		if !canonical(id)||!canonical(device){writeErr(w,http.StatusBadRequest);return}
+		result,err:=store.RevokeDevice(r.Context(),id,device)
+		if err!=nil{writeErr(w,errorStatus(err));return}
+		// Revoke is durable; stopped connections are proved separately by ElXray.
+		writeJSON(w,http.StatusAccepted,result)
 	})
 	mux.HandleFunc("POST /v1/entitlements/{id}/reconcile-fup",func(w http.ResponseWriter,r *http.Request){
 		id:=r.PathValue("id")
