@@ -37,7 +37,7 @@ func TestNextCalendarBoundaryDSTAndMonth(t *testing.T) {
 func TestAdvancePeriodAtomicWatermarkNoDoubleCharge(t *testing.T) {
 	ctx, db := testDatabase(t)
 	entitlement, schedule, oldPeriod := uuid.New(), uuid.New(), uuid.New()
-	start := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	start := time.Now().UTC().Truncate(24*time.Hour).Add(-24 * time.Hour)
 	end := start.AddDate(0, 0, 1)
 	_, err := db.ExecContext(ctx, `INSERT INTO elx_entitlements(id,active_slots,valid_until)
 		VALUES($1,2,clock_timestamp()+interval '1 day')`, entitlement)
@@ -133,10 +133,11 @@ func TestAdvancePeriodAtomicWatermarkNoDoubleCharge(t *testing.T) {
 
 	binding := accounting.Assignment{NodeID: a.NodeID, ExecutorID: a.ExecutorID,
 		Incarnation: a.Incarnation, AccountingID: a.AccountingID,
-		Generation: a.Generation, PeriodID: next.PeriodID}
+		Generation: a.Generation}
 	usage := corepolicy.Usage{Incarnation: a.Incarnation, Sequence: 9,
 		SampledAt: end.Add(40*time.Minute), UpBytes: 80, DownBytes: 100}
-	_, err = accounting.Collect(ctx, db, a.NodeID, binding, signedUsageStub{"lab", key, usage})
+	_, err = accounting.CollectCurrent(ctx, db, a.NodeID, schedule, binding,
+		signedUsageStub{"lab", key, usage})
 	checkError(t, err, nil)
 	err = db.QueryRowContext(ctx, `SELECT up_bytes,down_bytes FROM elx_usage_periods WHERE id=$1`,
 		next.PeriodID).Scan(&up, &down)
