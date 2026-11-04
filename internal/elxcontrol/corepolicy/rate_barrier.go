@@ -22,6 +22,7 @@ type RateBarrierRequest struct {
 	Subscription string
 	Epoch int64
 	Revision int64
+	CoreRevision int64
 	Up int64
 	Down int64
 }
@@ -38,7 +39,7 @@ func (c *Client) ProveRateBarrier(ctx context.Context, r RateBarrierRequest,
 	pinned ed25519.PublicKey) ([]byte,error) {
 	if c==nil || c.conn==nil || len(pinned)!=ed25519.PublicKeySize ||
 		r.EntitlementID==uuid.Nil||r.NodeID==uuid.Nil||r.ResourceID==uuid.Nil||
-		r.OperationID==uuid.Nil||r.Epoch<=0||r.Revision<=0 {
+		r.OperationID==uuid.Nil||r.Epoch<=0||r.Revision<=0||r.CoreRevision<=1 {
 		return nil,errors.New("invalid core rate barrier assignment")
 	}
 	raw,err:=json.Marshal(r)
