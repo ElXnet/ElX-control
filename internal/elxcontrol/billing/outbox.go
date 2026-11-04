@@ -86,6 +86,18 @@ func ConfirmJob(ctx context.Context,db *sql.DB,job,claim,operation string)(strin
   desiredStatus="enable_leased";profileStatus="active";nextJob="active"
  }
  if status!=desiredStatus{return "",ErrConflict}
+ if operation=="enable" {
+  // A rotation can begin after this worker claims its task. Never accept
+  // a stale success ACK while the old incarnation is being drained.
+  var rotating bool
+  err=tx.QueryRowContext(ctx,`SELECT EXISTS(
+    SELECT 1 FROM elx_paid_profiles p
+    JOIN elx_rate_grants g ON g.entitlement_id=p.entitlement_id
+    JOIN elx_core_rotations r ON r.node_id=g.node_id
+    WHERE p.id=$1 AND r.state='quiescing')`,profile).Scan(&rotating)
+  if err!=nil{return "",err}
+  if rotating{return "",ErrConflict}
+ }
  _,err=tx.ExecContext(ctx,`UPDATE elx_paid_profiles SET status=$2 WHERE id=$1`,
   profile,profileStatus)
  if err!=nil{return "",err}
@@ -167,6 +179,13 @@ func readyToEnable(ctx context.Context,db *sql.DB,profileID string,
  for _,b:=range bindings{manifest[b.Target]=b}
  var sumUp,sumDown int64
  for _,g:=range grants{
+  var rotating bool
+  if err=db.QueryRowContext(ctx,`SELECT EXISTS(
+    SELECT 1 FROM elx_core_rotations WHERE node_id=$1
+    AND state='quiescing')`,g.node).Scan(&rotating);err!=nil{
+   return false,err
+  }
+  if rotating{return false,nil}
   if g.up<=0||g.down<=0||g.up>limitUp-sumUp||g.down>limitDown-sumDown{
    return false,nil
   }
