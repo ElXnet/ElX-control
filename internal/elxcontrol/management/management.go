@@ -106,6 +106,7 @@ type Store interface {
 	QueueDrain(context.Context, string, string) error
 	RevokeDevice(context.Context, string, string) (RevokeResult, error)
 	CreateSchedule(context.Context, string, ScheduleSpec) (ScheduleCreated, error)
+	ActivateSchedule(context.Context, string, string) (Activation, error)
 	Reconcile(context.Context, string) (ReconcileResult, error)
 }
 
@@ -315,6 +316,13 @@ func Handler(store Store) http.Handler {
 		if result.AlreadyExisted{status=http.StatusOK}
 		writeJSON(w,status,result)
 	})
+	mux.HandleFunc("POST /v1/entitlements/{id}/fup-schedules/{schedule}/activate",func(w http.ResponseWriter,r *http.Request){
+		entitlement,schedule:=r.PathValue("id"),r.PathValue("schedule")
+		if !canonical(entitlement)||!canonical(schedule){writeErr(w,http.StatusBadRequest);return}
+		result,err:=store.ActivateSchedule(r.Context(),entitlement,schedule)
+		if err!=nil{writeErr(w,errorStatus(err));return}
+		writeJSON(w,http.StatusOK,result)
+	})
 	mux.HandleFunc("POST /v1/entitlements/{id}/reconcile-fup",func(w http.ResponseWriter,r *http.Request){
 		id:=r.PathValue("id")
 		if !canonical(id){writeErr(w,http.StatusBadRequest);return}
@@ -332,7 +340,7 @@ func errorStatus(err error) int {
 	switch {
 	case errors.Is(err,ErrNotFound), errors.Is(err,sql.ErrNoRows):return http.StatusNotFound
 	case errors.Is(err,journal.ErrInvalid), errors.Is(err,ErrSchedule):return http.StatusBadRequest
-	case errors.Is(err,journal.ErrConflict):return http.StatusConflict
+	case errors.Is(err,journal.ErrConflict), errors.Is(err,ErrNotReady):return http.StatusConflict
 	case errors.Is(err,session.ErrDrain):return http.StatusConflict
 	default:return http.StatusServiceUnavailable
 	}
