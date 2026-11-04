@@ -37,3 +37,9 @@ Core-side signed VLESS deny/drain evidence, Control-authorized automatic session
 Do not merge this branch or deploy as a finished business service solely on the basis of unit tests. All local and GitHub Actions test results should be inspected first.
 
 For verified assignment bootstrapping run `elx-control auto-provision-usage -entitlement UUID -schedule UUID` on the Control host with `ELX_POLICY_BINDING` pointing to the same trusted manifest as `serve-policy`. Nodes running `serve-usage` discover only their own assignments over mTLS on each poll. Payment processing and safe core-incarnation rotation are separate workflows.
+
+## Paid profiles and isolated payment verifier
+
+The payment reader/settlement verifier is a **separate service**: it holds the private Ed25519 attestation key and bank API credentials. ElX Control handles only server-priced checkout orders and validates the verifier's signed settlement against a pinned public key. Payment confirmation is exposed on `serve-payment-ingress` using a **separate restricted** `ELX_PAYMENT_SOCKET`; it is not routed through the administrative `ELX_MANAGEMENT_SOCKET`. Profile creation is a durable disabled-first ElX-ui outbox. Rate allocations, signed Control leases and per-node reconciliation must be verified before enabling paid VPN access.
+
+For the operator commands, failure recovery, separate Unix users/groups, 30-day tariff, invoice replay tests and signed core rotation see [Paid profiles and core rotation](docs/elx/paid-profiles-and-core-rotation.ru.md).
