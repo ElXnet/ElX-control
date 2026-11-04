@@ -146,11 +146,13 @@ func TestReserveLastSlotConcurrentAcrossNodes(t *testing.T) {
 	corePub, coreKey, err := ed25519.GenerateKey(nil)
 	checkError(t, err, nil)
 	fence := session.Fence{OwnerID: owner.ID, Generation: owner.Generation,
-		NodeID: winner.req.intent.NodeID, Incarnation: winner.req.intent.Incarnation}
+		NodeID: winner.req.intent.NodeID, Incarnation: winner.req.intent.Incarnation,
+		ProfileID: winner.req.intent.ProfileID}
 	for _, wrong := range []session.Fence{
-		{OwnerID: owner.ID, Generation: owner.Generation + 1, NodeID: fence.NodeID, Incarnation: fence.Incarnation},
-		{OwnerID: owner.ID, Generation: owner.Generation, NodeID: otherNode.intent.NodeID, Incarnation: fence.Incarnation},
-		{OwnerID: owner.ID, Generation: owner.Generation, NodeID: fence.NodeID, Incarnation: uuid.New()},
+		{OwnerID: owner.ID, Generation: owner.Generation + 1, NodeID: fence.NodeID, Incarnation: fence.Incarnation, ProfileID: fence.ProfileID},
+		{OwnerID: owner.ID, Generation: owner.Generation, NodeID: otherNode.intent.NodeID, Incarnation: fence.Incarnation, ProfileID: fence.ProfileID},
+		{OwnerID: owner.ID, Generation: owner.Generation, NodeID: fence.NodeID, Incarnation: uuid.New(), ProfileID: fence.ProfileID},
+		{OwnerID: owner.ID, Generation: owner.Generation, NodeID: fence.NodeID, Incarnation: fence.Incarnation, ProfileID: uuid.New()},
 	} {
 		err = session.ReleaseAfterFence(ctx, db, wrong, corePub, ed25519.Sign(coreKey, session.FenceTranscript(wrong)))
 		checkError(t, err, session.ErrFence)
