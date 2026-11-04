@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -26,6 +27,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/accounting"
+	"github.com/ElXnet/ElX-control/internal/elxcontrol/corepolicy"
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/journal"
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/policytransport"
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/fencetransport"
@@ -35,6 +37,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func testRemoteDB(t *testing.T) (context.Context, *sql.DB) {
@@ -101,6 +104,16 @@ func testCerts(t *testing.T, valid, other uuid.UUID) (*x509.CertPool, tls.Certif
 		return tls.Certificate{Certificate:[][]byte{der},PrivateKey:leafKey}
 	}
 	return roots,create(2,uuid.Nil,true),create(3,valid,false),create(4,other,false)
+}
+
+type rateBarrierTestCore struct { private ed25519.PrivateKey }
+func (c rateBarrierTestCore) ProveRateBarrier(_ context.Context,req corepolicy.RateBarrierRequest,
+	pinned ed25519.PublicKey)([]byte,error){
+	if string(pinned)!=string(c.private.Public().(ed25519.PublicKey)) ||
+		req.CoreRevision!=req.Revision+1 {
+		return nil,fmt.Errorf("rate barrier core identity or revision mismatch")
+	}
+	return ed25519.Sign(c.private,corepolicy.BarrierTranscript(req)),nil
 }
 
 type proofCore struct {
@@ -226,6 +239,39 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 	if err:=good.Invoke(ctx,leaseRoute,wrapperspb.Bytes(leaseInput),&leaseWire);err!=nil {
 		t.Fatalf("eligible node did not get a signed Control lease: %v",err)
 	}
+	// The same mTLS endpoint carries rate barriers, but only after the
+	// journal confirms a policy update. The test core signs the transcript
+	// after the separate core-level drain contract is independently tested.
+	target:=journal.Target{NodeID:binding.NodeID.String(),ResourceID:leaseResource.String()}
+	rateOp:=uuid.NewString()
+	_,err=journal.QueueRateMove(ctx,db,entitlement.String(),target,rateOp,0,journal.Rate{Up:40,Down:40})
+	if err!=nil {t.Fatal(err)}
+	applied,err:=journal.Pending(ctx,db,target)
+	if err!=nil {t.Fatal(err)}
+	if err:=journal.ConfirmApplied(ctx,db,target,rateOp,1,sha256.Sum256(applied.Payload));err!=nil {
+		t.Fatal(err)
+	}
+	var barrierReply wrapperspb.BytesValue
+	barrierNext:="/elx.node.v1.PolicyDelivery/RateBarrierNext"
+	if err:=foreign.Invoke(ctx,barrierNext,&emptypb.Empty{},&barrierReply);
+		status.Code(err)!=codes.PermissionDenied {
+		t.Fatalf("foreign node read pending rate barrier: %v",err)
+	}
+	if err:=policytransport.ApplyRateBarrier(ctx,good,rateBarrierTestCore{private:key});err!=nil {
+		t.Fatalf("authenticated core rate barrier could not finalize: %v",err)
+	}
+	var committedUp,committedDown int64
+	if err:=db.QueryRowContext(ctx,`SELECT committed_up,committed_down
+		FROM elx_rate_grants WHERE node_id=$1 AND resource_id=$2`,
+		binding.NodeID,leaseResource).Scan(&committedUp,&committedDown);err!=nil {t.Fatal(err)}
+	if committedUp!=40 || committedDown!=40 {
+		t.Fatalf("signed core barrier did not lower durable commitment: %d/%d",committedUp,committedDown)
+	}
+	if err:=policytransport.ApplyRateBarrier(ctx,good,rateBarrierTestCore{private:key});
+		status.Code(err)!=codes.NotFound {
+		t.Fatalf("finalized rate barrier was replayed: %v",err)
+	}
+
 	var lease policytransport.Lease
 	if err:=json.Unmarshal(leaseWire.Value,&lease);err!=nil {t.Fatal(err)}
 	if lease.NodeID!=binding.NodeID || lease.Subscription!=sub ||
