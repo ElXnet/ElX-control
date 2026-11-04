@@ -42,6 +42,12 @@ func (f *fakeStore) CreateSchedule(_ context.Context,id string,spec ScheduleSpec
  if f.err!=nil{return ScheduleCreated{},f.err}
  return ScheduleCreated{ScheduleID:spec.ScheduleID,PeriodID:testOther},nil
 }
+func (f *fakeStore) ActivateSchedule(_ context.Context,entitlement,schedule string)(Activation,error){
+ if entitlement!=testEntitlement||schedule!=testOther{return Activation{},ErrNotFound}
+ if f.err!=nil{return Activation{},f.err}
+ return Activation{ScheduleID:schedule,Enabled:true,
+  Coverage:SignedCoverage{ScheduleID:schedule,ExpectedGrants:1,FreshGrants:1,Ready:true}},nil
+}
 func (f *fakeStore) Reconcile(_ context.Context,id string)(ReconcileResult,error){
 	f.reconcileCalls++
 	return ReconcileResult{EntitlementID:id,Active:true,Pending:2},f.err
@@ -137,4 +143,20 @@ func TestFUPEndpointRequestValidation(t *testing.T){
  if w.Code!=201 || !strings.Contains(w.Body.String(),id){t.Fatalf("valid schedule: %d %s",w.Code,w.Body.String())}
  w=serve(t,f,"GET",path)
  if w.Code!=405{t.Fatalf("GET generated schedule %d",w.Code)}
+}
+
+func TestActivationIsPrivilegedPOSTWithStrictUUIDs(t *testing.T){
+ f:=&fakeStore{}
+ path:="/v1/entitlements/"+testEntitlement+"/fup-schedules/"+testOther+"/activate"
+ w:=serve(t,f,"GET",path)
+ if w.Code!=405{t.Fatalf("activation accepted GET: %d",w.Code)}
+ w=serve(t,f,"POST",path)
+ if w.Code!=200||!strings.Contains(w.Body.String(),`"enabled":true`){t.Fatalf("activation: %d %s",w.Code,w.Body.String())}
+ w=serve(t,f,"POST","/v1/entitlements/"+testEntitlement+"/fup-schedules/not-a-uuid/activate")
+ if w.Code!=400{t.Fatalf("invalid schedule ID accepted: %d",w.Code)}
+ w=serve(t,f,"POST","/v1/entitlements/"+testOther+"/fup-schedules/"+testOther+"/activate")
+ if w.Code!=404{t.Fatalf("unowned schedule activated: %d",w.Code)}
+ f.err=ErrNotReady
+ w=serve(t,f,"POST",path)
+ if w.Code!=409{t.Fatalf("missing signed streams did not cause a conflict: %d",w.Code)}
 }
