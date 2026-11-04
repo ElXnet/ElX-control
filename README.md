@@ -9,8 +9,9 @@ Standalone Go control-plane module for the ElX VPN service. The active implement
 - Durable session-slot reservations and one-time device proofs.
 - Authorized, durable VLESS-profile drain queue: mTLS agent executes core deny+drain, verifies pinned Ed25519 proof, then releases only the matching session generation.
 - Cumulative ElXray usage readback, nonce-bound remote signed accounting over mTLS, per-period FUP events and a queueing FUP reconciler.
-- Per-entitlement shared upload/download grant ledger with conservative, as-yet-unfinalized reduction barriers.
-- Calendar-aware FUP rollover (day/week/month) with atomic source-watermark inheritance and dynamic current-period collection.\n- Long-running mTLS node policy agent, FUP maintenance loop, RAWI API client, and tested allocation primitives.
+- Per-entitlement shared upload/download rate grants and automatic core-signed deny-and-drain barriers before releasing reduced commitments.
+- Calendar-aware FUP rollover (day/week/month) with atomic source-watermark inheritance and dynamic current-period collection.
+- Long-running mTLS node policy, session-drain, signed usage and 15-second lease agents, FUP maintenance loop, RAWI API client, and tested allocation primitives.
 
 See `docs/elx/policy-smoke.ru.md` for Windows/WSL, PostgreSQL and two-node live VLESS integration checks.
 
@@ -28,6 +29,6 @@ This checks the **standalone** Control module. Scripts create an isolated Postgr
 
 ## Integration still required
 
-The database's session-fence verification is not itself proof that ElXray has drained a particular device's flows. Core-generated drain receipts, unique profile-to-device bindings, authenticated personal-cabinet enqueue integration, node provisioning/key rotation, core-side fail-closed policy leases during network partitions, and signed rate-reduction barrier enforcement must be integrated and tested before paid production traffic. The signed usage and drain paths require pre-provisioned trusted source assignments. Never infer device identity from an IP address or a copied subscription URL.
+Core-side signed VLESS deny/drain evidence, Control-authorized automatic session release, signed accounting, 15-second fail-closed network-partition leases, and rate-reduction barriers have been implemented in the working branches. For production, mandatory lease mode must be enabled on both core and node agent with provisioned trust anchors and the persisted policy store. Remaining integration: verified provisioning that binds each device's authenticated VLESS profile to its entitlement, authorized personal-cabinet actions and billing, node/key rotation and recovery procedures, and multi-device failure/load tests. Do not infer device identity from IP addresses, HWIDs or copied subscription URLs. Local token buckets permit a bounded burst; the grant ledger enforces conservative allocations, not mathematically zero packet-level bursts.
 
 Do not merge this branch or deploy as a finished business service solely on the basis of unit tests. All local and GitHub Actions test results should be inspected first.
