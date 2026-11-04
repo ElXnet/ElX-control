@@ -92,6 +92,11 @@ func ReleaseAfterFence(ctx context.Context, db *sql.DB, f Fence, coreKey ed25519
 		}
 		return tx.Commit()
 	}
+	// A node cannot unilaterally free a slot, even with its own valid
+	// signing key. Control must first authorize this generation's drain.
+	if state != "draining" {
+		return ErrFence
+	}
 	_, err = tx.ExecContext(ctx, `UPDATE elx_session_owners SET state='released',fence_signature=$2 WHERE id=$1`,
 		f.OwnerID, signature)
 	if err != nil {
