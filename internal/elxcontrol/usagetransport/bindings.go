@@ -29,7 +29,7 @@ func (s *receiver) bindings(ctx context.Context, _ *emptypb.Empty) (*wrapperspb.
 		  AND st.executor_id=a.executor_id AND st.incarnation=a.incarnation
 		  AND st.accounting_id=a.accounting_id AND st.generation=a.generation
 		  AND st.period_id=a.period_id
-		WHERE a.node_id=$1 AND a.resource_id IS NOT NULL AND NOT c.revoked
+		WHERE a.node_id=$1 AND a.resource_id IS NOT NULL AND a.active AND NOT c.revoked
 		  AND NOT st.closed AND e.enabled AND e.valid_until>clock_timestamp()
 		  AND p.starts_at<=clock_timestamp() AND p.ends_at>clock_timestamp()
 		  AND g.committed_up>0 AND g.committed_down>0
