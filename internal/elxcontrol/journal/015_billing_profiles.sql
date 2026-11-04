@@ -54,3 +54,21 @@ CREATE TABLE elx_profile_provision_jobs (
     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     CHECK ((lease_owner IS NULL)=(lease_until IS NULL))
 );
+
+-- Renewals update the panel's expiry metadata without changing credentials or
+-- bypassing Control's active entitlement / mandatory lease authorization.
+-- They are separate from one-time profile creation so a paid renewal cannot
+-- be lost while the creation job is in flight.
+CREATE TABLE elx_profile_expiry_jobs (
+    id uuid PRIMARY KEY,
+    order_id uuid NOT NULL UNIQUE REFERENCES elx_checkout_orders(id),
+    profile_id uuid NOT NULL REFERENCES elx_paid_profiles(id),
+    valid_until timestamptz NOT NULL,
+    status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','leased','done')),
+    lease_owner uuid,
+    lease_until timestamptz,
+    attempts integer NOT NULL DEFAULT 0 CHECK (attempts>=0),
+    completed_at timestamptz,
+    CHECK ((lease_owner IS NULL)=(lease_until IS NULL))
+);
+CREATE INDEX elx_profile_expiry_pending ON elx_profile_expiry_jobs(status,valid_until);
