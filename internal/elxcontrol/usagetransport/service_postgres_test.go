@@ -275,9 +275,10 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 	var lease policytransport.Lease
 	if err:=json.Unmarshal(leaseWire.Value,&lease);err!=nil {t.Fatal(err)}
 	if lease.NodeID!=binding.NodeID || lease.Subscription!=sub ||
-		lease.NotAfter-lease.NotBefore!=15 || !ed25519.Verify(leasePub,
-			fmt.Appendf(nil,"elx-control-lease-v1\n%s\n%s\n%d\n%d\n%d",
-				lease.NodeID,lease.Subscription,lease.Sequence,lease.NotBefore,lease.NotAfter),
+		lease.NotAfter-lease.NotBefore!=15 || lease.CeilingUp!=100 || lease.CeilingDown!=100 ||
+		!ed25519.Verify(leasePub,
+			fmt.Appendf(nil,"elx-control-lease-v2\n%s\n%s\n%d\n%d\n%d\n%d\n%d",
+				lease.NodeID,lease.Subscription,lease.Sequence,lease.NotBefore,lease.NotAfter,lease.CeilingUp,lease.CeilingDown),
 			lease.Signature) {
 		t.Fatalf("Control lease ticket is not node-bound or signature invalid: %+v",lease)
 	}
