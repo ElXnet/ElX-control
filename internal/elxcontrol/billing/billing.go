@@ -169,7 +169,15 @@ type Applied struct {
 // MUST run before this method, and the accepted event is recorded with a
 // UNIQUE provider transaction. All rights, credentials and outbox writes
 // commit atomically; retries cannot extend a subscription twice.
-func ApplyVerifiedPayment(ctx context.Context,db *sql.DB,e VerifiedEvent)(Applied,error){
+func ApplySignedPayment(ctx context.Context,db *sql.DB,signed SignedEvent,
+ public ed25519.PublicKey)(Applied,error){
+ e,err:=Verify(public,signed)
+ if err!=nil{return Applied{},err}
+ return applyVerifiedPayment(ctx,db,e)
+}
+
+// Internal only: callers must verify Ed25519 evidence before reaching here.
+func applyVerifiedPayment(ctx context.Context,db *sql.DB,e VerifiedEvent)(Applied,error){
  out:=Applied{OrderID:e.OrderID}
  if db==nil||!e.valid(){return out,ErrInvalid}
  tx,err:=db.BeginTx(ctx,&sql.TxOptions{Isolation:sql.LevelReadCommitted})
@@ -266,13 +274,19 @@ func ApplyVerifiedPayment(ctx context.Context,db *sql.DB,e VerifiedEvent)(Applie
   if err!=nil{return out,err}
   if !owner{return out,ErrConflict}
   // Billing grants cannot raise or zero the purchased shared speed budget.
-  if _,err=tx.ExecContext(ctx,`UPDATE elx_entitlements SET
+  var newExpiry time.Time
+  if err=tx.QueryRowContext(ctx,`UPDATE elx_entitlements SET
     valid_until=GREATEST(valid_until,clock_timestamp())+interval '30 days',
-    enabled=true,active_slots=$2 WHERE id=$1`,target,slots);err!=nil{return out,err}
+    enabled=true,active_slots=$2 WHERE id=$1 RETURNING valid_until`,
+    target,slots).Scan(&newExpiry);err!=nil{return out,err}
   err=tx.QueryRowContext(ctx,`SELECT id::text FROM elx_paid_profiles WHERE entitlement_id=$1`,
    target).Scan(&out.ProfileID)
   if errors.Is(err,sql.ErrNoRows){return out,ErrConflict}
   if err!=nil{return out,err}
+  job:=uuid.NewSHA1(uuid.NameSpaceURL,[]byte("elx/profile-expiry/"+e.OrderID))
+  if _,err=tx.ExecContext(ctx,`INSERT INTO elx_profile_expiry_jobs
+   (id,order_id,profile_id,valid_until) VALUES($1,$2,$3,$4)`,
+   job,e.OrderID,out.ProfileID,newExpiry);err!=nil{return out,err}
   _=enabled
  }
  if _,err=tx.ExecContext(ctx,`INSERT INTO elx_payment_receipts
