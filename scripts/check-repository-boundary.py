@@ -5,6 +5,7 @@ Usage: python3 scripts/check-repository-boundary.py /path/to/workspace
 Workspace contains sibling ElX-ui and ElX-control repositories.
 """
 from pathlib import Path
+import re
 import sys
 
 DEPRECATED_DIRECTORIES = ("cmd/elx-control", "internal/elxcontrol")
@@ -50,6 +51,21 @@ def check(workspace: Path) -> list[str]:
                 if candidate in text:
                     errors.append(f"UI imports private Control implementation: {path.relative_to(ui)}")
                     break
+
+    # Avoid reintroducing compilation of the old embedded module from
+    # future UI scripts or Actions jobs, even if its files were deleted.
+    stale_compile = re.compile(
+        r"go\\s+(?:test|build|run)\\b[^\\n]*(?:\\./cmd/elx-control|\\./internal/elxcontrol)"
+    )
+    sources = (ui / "scripts", ui / ".github" / "workflows")
+    for source_root in sources:
+        if not source_root.is_dir():
+            continue
+        for path in source_root.rglob("*"):
+            if not path.is_file() or path.suffix not in {".sh", ".ps1", ".py", ".yml", ".yaml"}:
+                continue
+            if stale_compile.search(path.read_text(encoding="utf-8")):
+                errors.append(f"UI still builds embedded Control: {path.relative_to(ui)}")
 
     for rel in (
         "internal/web/controller/elx_management.go",
