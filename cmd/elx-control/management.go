@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/management"
+	"github.com/ElXnet/ElX-control/internal/elxcontrol/billing"
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/lk"
 )
 
@@ -37,6 +38,10 @@ func serveManagement(ctx context.Context,db *sql.DB) error {
 	router:=http.NewServeMux()
 	router.Handle("/v1/",management.Handler(management.SQLStore{DB:db}))
 	router.Handle("/lk/v1/",lk.Handler(lk.Store{DB:db}))
+	paymentKey,err:=billing.LoadVerificationKey()
+	if err!=nil{return err}
+	router.Handle("/billing/v1/",billing.Handler(db,paymentKey,loadBindings))
+	router.Handle("/provision/v1/",billing.Handler(db,paymentKey,loadBindings))
 	server:=&http.Server{Handler:router,
 		ReadHeaderTimeout:5*time.Second,IdleTimeout:30*time.Second}
 	done:=make(chan struct{})
