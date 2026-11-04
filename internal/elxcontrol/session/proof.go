@@ -61,7 +61,7 @@ func ProofTranscript(a Admission, nonce [32]byte) []byte {
 
 func (a Admission) reservation() reservationRequest {
 	return reservationRequest{EntitlementID: a.EntitlementID, DeviceID: a.DeviceID, NodeID: a.NodeID,
-		OperationID: a.OperationID, KeyGeneration: a.KeyGeneration, Incarnation: a.Incarnation}
+		OperationID: a.OperationID, KeyGeneration: a.KeyGeneration, Incarnation: a.Incarnation, ProfileID: a.ProfileID}
 }
 
 // IssueChallenge keeps at most one outstanding challenge per enrolled device.
