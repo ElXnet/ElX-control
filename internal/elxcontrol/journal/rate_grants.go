@@ -40,6 +40,15 @@ func QueueRateMove(ctx context.Context, db *sql.DB, entitlement string, target T
 	if err != nil {
 		return 0, err
 	}
+	// A quiescing core may only receive signed disable/drain operations.
+	// Positive rates cannot be queued while the old core is being fenced.
+	if desired.Up>0 || desired.Down>0 {
+		var rotating bool
+		err=tx.QueryRowContext(ctx,`SELECT EXISTS(SELECT 1 FROM elx_core_rotations
+			WHERE node_id=$1 AND state='quiescing')`,target.NodeID).Scan(&rotating)
+		if err!=nil{return 0,err}
+		if rotating{return 0,ErrPending}
+	}
 	var current Rate
 	err = tx.QueryRowContext(ctx, `SELECT committed_up,committed_down FROM elx_rate_grants
 		WHERE entitlement_id=$1 AND node_id=$2 AND resource_id=$3`,
@@ -192,8 +201,13 @@ func FinalizeRateMove(ctx context.Context, db *sql.DB, entitlement string, targe
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE elx_rate_moves SET finalized=true
-		WHERE node_id=$1 AND resource_id=$2 AND operation_id=$3`, target.NodeID, target.ResourceID, operationID)
+	_, err = tx.ExecContext(ctx, `UPDATE elx_rate_moves SET finalized=true,
+		barrier_signature=$4,barrier_at=CASE WHEN $4::bytea IS NOT NULL THEN clock_timestamp() ELSE NULL END
+		WHERE node_id=$1 AND resource_id=$2 AND operation_id=$3`,
+		target.NodeID, target.ResourceID, operationID, func() []byte {
+			if desired.Up<current.Up || desired.Down<current.Down {return barrier}
+			return nil
+		}())
 	if err != nil {
 		return err
 	}
