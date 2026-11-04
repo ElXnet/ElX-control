@@ -191,3 +191,47 @@ func TestVerifiedRenewalPreservesProfileAndQueuesExpiry(t *testing.T){
  if err=db.QueryRowContext(ctx,"SELECT valid_until FROM elx_entitlements WHERE id=$1",first.EntitlementID).Scan(&replayUntil);err!=nil{t.Fatal(err)}
  if !replayUntil.Equal(newUntil){t.Fatalf("renewal replay extended entitlement twice")}
 }
+
+func TestPaidProfileEnableACKCannotRaceWithCoreRotation(t *testing.T) {
+ ctx,db:=billingPostgres(t)
+ account:=billingAccount(t,ctx,db)
+ pub,priv,err:=ed25519.GenerateKey(nil)
+ if err!=nil{t.Fatal(err)}
+ order,err:=CreateOrder(ctx,db,account,uuid.NewString(),"",0)
+ if err!=nil{t.Fatal(err)}
+ applied,err:=ApplySignedPayment(ctx,db,confirmed(t,order,pub,priv),pub)
+ if err!=nil{t.Fatal(err)}
+ staged,err:=ClaimNext(ctx,db)
+ if err!=nil{t.Fatal(err)}
+ if status,err:=ConfirmJob(ctx,db,staged.JobID,staged.ClaimID,"create-disabled");
+  err!=nil||status!="staged"{t.Fatalf("create disabled: %s %v",status,err)}
+ node,res,oldBoot,newBoot:=uuid.New(),uuid.New(),uuid.New(),uuid.New()
+ oldKey,_,err:=ed25519.GenerateKey(nil)
+ if err!=nil{t.Fatal(err)}
+ nextKey,_,err:=ed25519.GenerateKey(nil)
+ if err!=nil{t.Fatal(err)}
+ if _,err=db.ExecContext(ctx,`INSERT INTO elx_operation_targets(node_id,resource_id)
+ VALUES($1,$2)`,node,res);err!=nil{t.Fatal(err)}
+ if _,err=db.ExecContext(ctx,`INSERT INTO elx_rate_grants
+ (entitlement_id,node_id,resource_id,committed_up,committed_down,epoch,barrier_public_key)
+ VALUES($1,$2,$3,1000,1000,1,$4)`,applied.EntitlementID,node,res,[]byte(oldKey));err!=nil{t.Fatal(err)}
+ if _,err=db.ExecContext(ctx,`INSERT INTO elx_core_identities(node_id,incarnation,public_key)
+ VALUES($1,$2,$3)`,node,oldBoot,[]byte(oldKey));err!=nil{t.Fatal(err)}
+ if _,err=db.ExecContext(ctx,`UPDATE elx_profile_provision_jobs
+ SET status='enable_pending' WHERE profile_id=$1 AND status='staged'`,
+ applied.ProfileID);err!=nil{t.Fatal(err)}
+ enable,err:=ClaimNext(ctx,db)
+ if err!=nil||enable.Operation!="enable"{t.Fatalf("enable job not claimed: %+v %v",enable,err)}
+ if _,err=db.ExecContext(ctx,`INSERT INTO elx_core_rotations
+ (id,node_id,old_incarnation,new_incarnation,new_public_key,earliest_cutover)
+ VALUES($1,$2,$3,$4,$5,clock_timestamp()+interval '45 seconds')`,
+ uuid.New(),node,oldBoot,newBoot,[]byte(nextKey));err!=nil{t.Fatal(err)}
+ if _,err=ConfirmJob(ctx,db,enable.JobID,enable.ClaimID,"enable");
+  !errors.Is(err,ErrConflict){
+  t.Fatalf("concurrent core rotation accepted stale profile enable ACK: %v",err)
+ }
+ var status string
+ if err=db.QueryRowContext(ctx,"SELECT status FROM elx_paid_profiles WHERE id=$1",
+ applied.ProfileID).Scan(&status);err!=nil{t.Fatal(err)}
+ if status!="staged"{t.Fatalf("stale ACK exposed paid profile as active: %s",status)}
+}
