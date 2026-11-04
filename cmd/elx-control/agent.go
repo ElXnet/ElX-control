@@ -49,6 +49,36 @@ func serveAgent(ctx context.Context, args []string) error {
 		return err
 	}
 	defer core.Close()
+	// Lease keepalives must be independent of slow drain operations; a
+	// blocked 30-second VLESS drain must not silently expire unrelated
+	// subscriptions if the Control channel is otherwise healthy.
+	if os.Getenv("ELX_AGENT_LEASE_REQUIRED")=="1" {
+		bindings,err:=loadBindings()
+		if err!=nil {return fmt.Errorf("lease bindings unavailable: %w",err)}
+		for _,binding:=range bindings {
+			binding:=binding
+			go func(){
+				ticker:=time.NewTicker(3*time.Second)
+				defer ticker.Stop()
+				for {
+					if ctx.Err()!=nil{return}
+					renewCtx,cancel:=context.WithTimeout(ctx,6*time.Second)
+					err:=policytransport.ApplyLease(renewCtx,conn,core,binding)
+					cancel()
+					if ctx.Err()!=nil{return}
+					if err!=nil {
+						// Do not synthesize keepalives or clear the local
+						// deadline. ElXray closes flows after 15 seconds.
+						fmt.Fprintln(os.Stderr,"ElX Control lease not renewed; core will fail closed:",err)
+					}
+					select {
+					case <-ctx.Done():return
+					case <-ticker.C:
+					}
+				}
+			}()
+		}
+	}
 	ticker := time.NewTicker(*interval)
 	defer ticker.Stop()
 	for {
