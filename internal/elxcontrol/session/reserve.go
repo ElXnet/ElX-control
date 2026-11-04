@@ -60,7 +60,7 @@ func reserve(ctx context.Context, db *sql.DB, req reservationRequest, verify ver
 	var proof []byte
 	err = tx.QueryRowContext(ctx, `SELECT id,generation,state,device_id,node_id,key_generation,proof_hash,profile_id
 		FROM elx_session_owners WHERE entitlement_id=$1 AND operation_id=$2`, req.EntitlementID, req.OperationID).
-		Scan(&owner.ID, &owner.Generation, &owner.State, &device, &node, &priorKey, &proof)
+		Scan(&owner.ID, &owner.Generation, &owner.State, &device, &node, &priorKey, &proof, &priorProfile)
 	if err == nil {
 		if device != req.DeviceID || node != req.NodeID || priorKey != req.KeyGeneration || !priorProfile.Valid || priorProfile.UUID != req.ProfileID || !bytes.Equal(proof, req.ProofHash[:]) {
 			return Owner{}, ErrConflict
