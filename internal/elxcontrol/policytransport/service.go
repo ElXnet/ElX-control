@@ -71,6 +71,7 @@ type receipt struct {
 type server struct {
 	db    *sql.DB
 	nodes map[string][]Binding
+	leaseKey ed25519.PrivateKey
 }
 
 func (s *server) authorize(ctx context.Context) ([]Binding, error) {
@@ -194,6 +195,7 @@ func (s *server) confirm(ctx context.Context, in *wrapperspb.BytesValue) (*empty
 type service interface {
 	next(context.Context, *emptypb.Empty) (*wrapperspb.BytesValue, error)
 	confirm(context.Context, *wrapperspb.BytesValue) (*emptypb.Empty, error)
+	lease(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
 }
 
 // Register installs policy delivery for provisioned node bindings. Callers must configure
@@ -205,6 +207,8 @@ func Register(g *grpc.Server, db *sql.DB, bindings ...Binding) error {
 	if err := ValidateBindings(bindings); err != nil {
 		return err
 	}
+	leaseKey,err:=LoadLeaseKey()
+	if err!=nil{return err}
 	nodes := make(map[string][]Binding)
 	for _, b := range bindings {
 		b.PublicKey = slices.Clone(b.PublicKey)
@@ -215,8 +219,9 @@ func Register(g *grpc.Server, db *sql.DB, bindings ...Binding) error {
 		Methods: []grpc.MethodDesc{
 			{MethodName: "Next", Handler: handler("Next", (*server).next)},
 			{MethodName: "Confirm", Handler: handler("Confirm", (*server).confirm)},
+			{MethodName: "Lease", Handler: handler("Lease", (*server).lease)},
 		},
-	}, &server{db: db, nodes: nodes})
+	}, &server{db: db, nodes: nodes, leaseKey:leaseKey})
 	return nil
 }
 
