@@ -1,6 +1,6 @@
 # ElX Control
 
-Standalone Go control-plane module for the ElX VPN service. The active implementation lives on the `feat/multinode-policy` branch, mirrored during the integration transition in `ElX-ui/elx-control-journal`.
+Standalone Go control-plane module for the ElX VPN service. **ElX-control is the sole source of truth** for the Control runtime, SQL migrations, agent, authentication, FUP and policy journal. The active integration branch is `feat/elx-management-stage3`. The former embedded mirror has been deleted from ElX-ui; the panel contains only its Unix-socket HTTP adapters and customer/admin frontend.
 
 ## Implemented boundaries
 
@@ -21,7 +21,7 @@ With Git for Windows, WSL Ubuntu, Docker Desktop and a Go toolchain installed, d
 
 ```powershell
 $runner = Join-Path $env:TEMP 'run-elx-windows.ps1'
-Invoke-WebRequest 'https://raw.githubusercontent.com/ElXnet/ElX-control/feat/multinode-policy/scripts/run-elx-windows.ps1' -OutFile $runner
+Invoke-WebRequest 'https://raw.githubusercontent.com/ElXnet/ElX-control/feat/elx-management-stage3/scripts/run-elx-windows.ps1' -OutFile $runner
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runner -Workspace 'C:\ElX-test'
 ```
 
@@ -29,6 +29,6 @@ This checks the **standalone** Control module. Scripts create an isolated Postgr
 
 ## Integration still required
 
-Core-side signed VLESS deny/drain evidence, Control-authorized automatic session release, signed accounting, 15-second fail-closed network-partition leases, and rate-reduction barriers have been implemented in the working branches. For production, mandatory lease mode must be enabled on both core and node agent with provisioned trust anchors and the persisted policy store. Remaining integration: verified provisioning that binds each device's authenticated VLESS profile to its entitlement, authorized personal-cabinet actions and billing, node/key rotation and recovery procedures, and multi-device failure/load tests. Do not infer device identity from IP addresses, HWIDs or copied subscription URLs. Local token buckets permit a bounded burst; the grant ledger enforces conservative allocations, not mathematically zero packet-level bursts.
+Core-side signed VLESS deny/drain evidence, Control-authorized automatic session release, signed accounting, 15-second fail-closed network-partition leases, and rate-reduction barriers have been implemented in the working branches. For production, mandatory lease mode must be enabled on both core and node agent with provisioned trust anchors and the persisted policy store. Remaining integration: verified provisioning that binds each device's authenticated VLESS profile to its entitlement, billing, email recovery/verification and production-grade per-IP auth throttling, node/key rotation and recovery procedures, and multi-device failure/load tests. The invite-only customer cabinet routes and ownership checks exist in the integration branch but still need release verification. Do not infer device identity from IP addresses, HWIDs or copied subscription URLs. Local token buckets permit a bounded burst; the grant ledger enforces conservative allocations, not mathematically zero packet-level bursts.
 
 Do not merge this branch or deploy as a finished business service solely on the basis of unit tests. All local and GitHub Actions test results should be inspected first.
