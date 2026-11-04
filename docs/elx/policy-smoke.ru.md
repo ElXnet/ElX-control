@@ -6,11 +6,11 @@
 
 ```powershell
 $runner = Join-Path $env:TEMP "run-elx-windows.ps1"
-Invoke-WebRequest "https://raw.githubusercontent.com/ElXnet/ElX-ui/elx-control-journal/scripts/run-elx-windows.ps1" -OutFile $runner
+Invoke-WebRequest "https://raw.githubusercontent.com/ElXnet/ElX-control/feat/multinode-policy/scripts/run-elx-windows.ps1" -OutFile $runner
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runner -Workspace "C:\ElX-test"
 ```
 
-Скрипт клонирует или безопасно обновляет три рабочие ветки, откажется работать при незакоммиченных изменениях и запустит полную локальную проверку из `ElX-ui` через WSL. Код Control для этой проверки пока берётся из `ElX-control/internal/elxcontrol`; отдельный `ElX-control` скачивается для сравнения, но не подменяет проверяемый модуль. При неудаче сохраните текст консоли и путь с тестовыми логами, напечатанный скриптом. Секреты/DSN не присылайте.
+Скрипт клонирует или безопасно обновляет три рабочие ветки, откажется работать при незакоммиченных изменениях и запустит полную локальную проверку из `ElX-control` через WSL. В этой проверке используется реализация Control из самостоятельного репозитория. При неудаче сохраните текст консоли и путь с тестовыми логами, напечатанный скриптом. Секреты/DSN не присылайте.
 
 ## Подписанные подтверждения закрытия сессии
 
@@ -42,12 +42,12 @@ bash scripts/elx-test-local.sh 2>&1 | tee elx-test.log
 Запускайте команды из Linux или WSL. Достаточно одного компьютера. Go и OpenSSL должны быть доступны внутри WSL, Docker Desktop должен быть подключён к этой WSL-дистрибуции. Скрипт применяет миграцию и оставляет записи в отдельной тестовой базе.
 
 1. Возьмите ветку `feat/multinode-policy` в ElX-control и `restrict-runtime-unlimited` в ElXray. В примере репозитории лежат рядом.
-2. Соберите бинарники. Версию Go берите из `go.mod` ElX-ui.
+2. Соберите бинарники. Версию Go берите из `go.mod` ElX-control.
 
    ```bash
    cd ElXray
    go build -o ../elxray-lab ./main
-   cd ../ElX-ui
+   cd ../ElX-control
    go build -o ../elx-control-lab ./cmd/elx-control
    ```
 
