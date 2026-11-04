@@ -35,7 +35,7 @@ func TestCollectPinnedCoreUsageAcrossTwoNodes(t *testing.T) {
 	checkError(t, err, nil)
 	_, err = db.ExecContext(ctx, `INSERT INTO elx_usage_periods
 		(id,entitlement_id,starts_at,ends_at,direction,threshold_bytes,reduced_up,reduced_down)
-		VALUES($1,$2,$3,$4,'total',100,10,10)`, period, now.Add(-time.Hour), now.Add(time.Hour))
+		VALUES($1,$2,$3,$4,'total',100,10,10)`, period, entitlement, now.Add(-time.Hour), now.Add(time.Hour))
 	checkError(t, err, nil)
 	type source struct {
 		binding accounting.Assignment
