@@ -239,6 +239,10 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 		session.FenceTranscript(f)));status.Code(err)!=codes.PermissionDenied {
 		t.Fatalf("untrusted core signature released slot: %v",err)
 	}
+	if err:=fencetransport.Send(ctx,good,f,sig);status.Code(err)!=codes.FailedPrecondition {
+		t.Fatalf("node released slot without Control authorization: %v",err)
+	}
+	if err:=session.QueueDrain(ctx,db,owner);err!=nil {t.Fatal(err)}
 	if err:=fencetransport.Send(ctx,good,f,sig);err!=nil {t.Fatal(err)}
 	if err:=fencetransport.Send(ctx,good,f,sig);err!=nil {
 		t.Fatalf("idempotent fence retry after lost ACK failed: %v",err)
