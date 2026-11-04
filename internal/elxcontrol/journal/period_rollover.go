@@ -92,9 +92,9 @@ func AdvancePeriod(ctx context.Context, db *sql.DB, scheduleID uuid.UUID, now ti
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO elx_accounting_streams
 		(node_id,executor_id,incarnation,accounting_id,generation,period_id,
-		sequence,up_bytes,down_bytes,closed,primed)
+		sequence,up_bytes,down_bytes,closed,primed,last_received_at)
 		SELECT node_id,executor_id,incarnation,accounting_id,generation,$2,
-			sequence,up_bytes,down_bytes,false,primed
+			sequence,up_bytes,down_bytes,false,primed,last_received_at
 		FROM elx_accounting_streams WHERE period_id=$1`, oldID, newID)
 	if err != nil {
 		return out, err
