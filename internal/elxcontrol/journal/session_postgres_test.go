@@ -178,6 +178,10 @@ func TestReserveLastSlotConcurrentAcrossNodes(t *testing.T) {
 	_, err = db.ExecContext(ctx, `UPDATE elx_core_identities SET revoked=false
 		WHERE node_id=$1 AND incarnation=$2`, fence.NodeID, fence.Incarnation)
 	checkError(t, err, nil)
+	// A valid signature is insufficient without a Control-authorized drain.
+	checkError(t, session.ReleaseAfterFence(ctx, db, fence, corePub, sig), session.ErrFence)
+	checkError(t, session.QueueDrain(ctx, db, owner.ID), nil)
+	checkError(t, session.QueueDrain(ctx, db, owner.ID), nil)
 	checkError(t, session.ReleaseAfterFence(ctx, db, fence, corePub, sig), nil)
 	next, err := submit(otherNode)
 	checkError(t, err, nil)
