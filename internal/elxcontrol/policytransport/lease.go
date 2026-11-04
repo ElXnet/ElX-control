@@ -2,6 +2,7 @@ package policytransport
 
 import (
 	"context"
+	"bytes"
 	"database/sql"
 	"crypto/ed25519"
 	"encoding/hex"
@@ -79,17 +80,25 @@ func (s *server) lease(ctx context.Context,in *wrapperspb.BytesValue)(*wrappersp
 		return nil,status.Error(codes.PermissionDenied,"lease target not assigned to authenticated node")
 	}
 	var entitlement string
-	var ceilingUp,ceilingDown int64
-	err=s.db.QueryRowContext(ctx,`SELECT g.entitlement_id::text,g.committed_up,g.committed_down
+	var ceilingUp,ceilingDown,storedEpoch int64
+	var pinnedKey []byte
+	err=s.db.QueryRowContext(ctx,`SELECT g.entitlement_id::text,g.committed_up,g.committed_down,
+		g.epoch,g.barrier_public_key
 		FROM elx_rate_grants g
 		JOIN elx_entitlements e ON e.id=g.entitlement_id
 		WHERE g.node_id=$1 AND g.resource_id=$2 AND e.enabled=true
 		  AND e.valid_until>clock_timestamp()
 		  AND g.committed_up>0 AND g.committed_down>0
 	`,reqNodeID(binding.Target.NodeID),reqNodeID(req.ResourceID)).
-		Scan(&entitlement,&ceilingUp,&ceilingDown)
+		Scan(&entitlement,&ceilingUp,&ceilingDown,&storedEpoch,&pinnedKey)
 	if errors.Is(err,sql.ErrNoRows){return nil,status.Error(codes.FailedPrecondition,"subscription not eligible for a Control lease")}
 	if err!=nil {return nil,status.Error(codes.Unavailable,"subscription lease eligibility unavailable")}
+	// A restarted or superseded Control policy service must never sign a
+	// lease with a stale manifest. Rotate the pinned core key and epoch
+	// atomically with rate-grant ownership, then restart the policy service.
+	if storedEpoch!=binding.Epoch || !bytes.Equal(pinnedKey,binding.PublicKey){
+		return nil,status.Error(codes.FailedPrecondition,"core policy binding superseded")
+	}
 	// A live FUP needs a recent signed usage sequence for every active
 	// rate grant, including the exact subscription/resource requesting this
 	// lease. Otherwise Control must not authorize continued unmetered VPN.
