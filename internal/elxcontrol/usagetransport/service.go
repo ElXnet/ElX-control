@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 const serviceName = "elx.node.v1.SignedAccounting"
@@ -28,6 +29,7 @@ type submitRequest struct {
 type receiver struct{ db *sql.DB }
 
 type service interface {
+	bindings(context.Context, *emptypb.Empty) (*wrapperspb.BytesValue, error)
 	challenge(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
 	submit(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
 }
@@ -101,6 +103,7 @@ func Register(g *grpc.Server, db *sql.DB) error {
 		ServiceName: serviceName,
 		HandlerType: (*service)(nil),
 		Methods: []grpc.MethodDesc{
+			{MethodName: "Bindings", Handler: handler("Bindings", (*receiver).bindings)},
 			{MethodName: "Challenge", Handler: handler("Challenge", (*receiver).challenge)},
 			{MethodName: "Submit", Handler: handler("Submit", (*receiver).submit)},
 		},
