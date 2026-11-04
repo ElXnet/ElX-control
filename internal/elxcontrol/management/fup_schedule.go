@@ -80,6 +80,15 @@ func scheduleWindow(now time.Time, cadence, zone string)(time.Time,time.Time,err
 // It cannot raise speeds or create an unlimited FUP. A caller-controlled
 // ScheduleID makes retries idempotent, including after a controller restart.
 func (s SQLStore) CreateSchedule(ctx context.Context, entitlement string, spec ScheduleSpec)(ScheduleCreated,error){
+ return s.createSchedule(ctx,entitlement,spec,0)
+}
+
+// CreateUserSchedule permits only tighter user-defined caps and bounds the
+// number of schedules to prevent unbounded accounting/maintenance work.
+func (s SQLStore) CreateUserSchedule(ctx context.Context, entitlement string, spec ScheduleSpec)(ScheduleCreated,error){
+ return s.createSchedule(ctx,entitlement,spec,3)
+}
+func (s SQLStore) createSchedule(ctx context.Context, entitlement string, spec ScheduleSpec,maxSchedules int)(ScheduleCreated,error){
  out:=ScheduleCreated{ScheduleID:spec.ScheduleID}
  if s.DB==nil||!canonical(entitlement)||!validSchedule(spec){return out,ErrSchedule}
  tx,err:=s.DB.BeginTx(ctx,&sql.TxOptions{Isolation:sql.LevelReadCommitted})
@@ -117,6 +126,11 @@ func (s SQLStore) CreateSchedule(ctx context.Context, entitlement string, spec S
   return out,tx.Commit()
  }
  if !errors.Is(err,sql.ErrNoRows){return out,err}
+ if maxSchedules>0 {
+  var count int
+  if err=tx.QueryRowContext(ctx,"SELECT count(*) FROM elx_period_schedules WHERE entitlement_id=$1",entitlement).Scan(&count);err!=nil{return out,err}
+  if count>=maxSchedules{return out,ErrSchedule}
+ }
  var now time.Time
  if err=tx.QueryRowContext(ctx,"SELECT clock_timestamp()").Scan(&now);err!=nil{return out,err}
  out.StartsAt,out.EndsAt,err=scheduleWindow(now,spec.Cadence,spec.Timezone)
