@@ -78,9 +78,7 @@ func Handler(db *sql.DB,public ed25519.PublicKey,
   }
   var signed SignedEvent
   if !strictJSON(w,r,&signed){return}
-  event,err:=Verify(public,signed)
-  if err!=nil{respond(w,statusCode(err),map[string]string{"error":"payment attestation rejected"});return}
-  result,err:=ApplyVerifiedPayment(r.Context(),db,event)
+  result,err:=ApplySignedPayment(r.Context(),db,signed,public)
   if err!=nil{respond(w,statusCode(err),map[string]string{"error":"payment cannot be applied"});return}
   respond(w,200,result)
  })
