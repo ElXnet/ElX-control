@@ -26,6 +26,8 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/accounting"
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/journal"
+	"github.com/ElXnet/ElX-control/internal/elxcontrol/fencetransport"
+	"github.com/ElXnet/ElX-control/internal/elxcontrol/session"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -169,6 +171,7 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 		ClientCAs:roots,MinVersion:tls.VersionTLS13,
 	})))
 	if err := Register(srv,db); err != nil { t.Fatal(err) }
+	if err := fencetransport.Register(srv,db); err != nil { t.Fatal(err) }
 	go srv.Serve(lis)
 	t.Cleanup(func(){srv.Stop();lis.Close()})
 	dial:=func(cert tls.Certificate)*grpc.ClientConn{
@@ -206,4 +209,43 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 	if err:=db.QueryRowContext(ctx,`SELECT up_bytes,down_bytes FROM elx_usage_periods
 		WHERE id=$1`,period).Scan(&up,&down);err!=nil {t.Fatal(err)}
 	if up!=40 || down!=70 { t.Fatalf("double count: %d/%d",up,down) }
+
+	// A fence is accepted only for this node + boot + owner generation +
+	// VLESS profile. The cryptographic signature is a test fixture; real
+	// ElXray must produce it ONLY after denying and draining profile flows.
+	device, owner, profile := uuid.New(),uuid.New(),uuid.New()
+	_,err=db.ExecContext(ctx,`INSERT INTO elx_devices(id,entitlement_id,key_generation,public_key)
+		VALUES($1,$2,1,$3)`,device,entitlement,[]byte(pub))
+	if err!=nil {t.Fatal(err)}
+	_,err=db.ExecContext(ctx,`INSERT INTO elx_session_owners
+		(id,entitlement_id,device_id,node_id,operation_id,generation,key_generation,
+		proof_hash,state,core_incarnation,profile_id)
+		VALUES($1,$2,$3,$4,$5,1,1,$6,'active',$7,$8)`,
+		owner,entitlement,device,binding.NodeID,uuid.New(),make([]byte,32),binding.Incarnation,profile)
+	if err!=nil {t.Fatal(err)}
+	f:=session.Fence{OwnerID:owner,ProfileID:profile,Generation:1,
+		NodeID:binding.NodeID,Incarnation:binding.Incarnation}
+	sig:=ed25519.Sign(key,session.FenceTranscript(f))
+	if err:=fencetransport.Send(ctx,foreign,f,sig);status.Code(err)!=codes.PermissionDenied {
+		t.Fatalf("foreign node released an occupied slot: %v",err)
+	}
+	wrongProfile:=f
+	wrongProfile.ProfileID=uuid.New()
+	if err:=fencetransport.Send(ctx,good,wrongProfile,
+		ed25519.Sign(key,session.FenceTranscript(wrongProfile)));status.Code(err)!=codes.FailedPrecondition {
+		t.Fatalf("correct signature for unrelated VLESS profile released slot: %v",err)
+	}
+	if err:=fencetransport.Send(ctx,good,f,ed25519.Sign(badCoreKey,
+		session.FenceTranscript(f)));status.Code(err)!=codes.PermissionDenied {
+		t.Fatalf("untrusted core signature released slot: %v",err)
+	}
+	if err:=fencetransport.Send(ctx,good,f,sig);err!=nil {t.Fatal(err)}
+	if err:=fencetransport.Send(ctx,good,f,sig);err!=nil {
+		t.Fatalf("idempotent fence retry after lost ACK failed: %v",err)
+	}
+	var state string
+	if err:=db.QueryRowContext(ctx,`SELECT state FROM elx_session_owners
+		WHERE id=$1`,owner).Scan(&state);err!=nil {t.Fatal(err)}
+	if state!="released" {t.Fatalf("verified fence did not release owner: %s",state)}
+}
 }
