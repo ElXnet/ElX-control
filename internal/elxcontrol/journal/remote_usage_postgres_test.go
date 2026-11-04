@@ -93,9 +93,6 @@ func TestRemoteSignedUsageTwoNodesAuthenticatedAndReplaySafe(t *testing.T) {
 	one:=remoteUsageProof(t,nodes[0].key,nodes[0].sub,first.Nonce,nodes[0].binding.Incarnation,1,20,30,now)
 	_,err=accounting.SubmitRemoteUsage(ctx,db,nodes[1].binding.NodeID,nodes[0].binding,one)
 	checkError(t,err,accounting.ErrSample)
-	wrongKey,err:=ed25519.GenerateKey(rand.Reader)
-	_ = wrongKey
-	checkError(t,err,nil)
 	// A tampered counter changes the signed bytes, and must not consume the
 	// challenge, leaving the real core free to retry its valid response.
 	tampered:=append([]byte{},one...)
