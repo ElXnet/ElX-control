@@ -1,11 +1,9 @@
 package management
 
 import (
-	"bytes"
 	"crypto/ed25519"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/journal"
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/policytransport"
@@ -28,12 +26,12 @@ func TestAutoProvisionFromCanonicalPolicyManifest(t *testing.T) {
 	if err!=nil{t.Fatal(err)}
 	if created.PeriodID==""{t.Fatal("no schedule period")}
 	var policy []policytransport.Binding
-	var boots []uuid.UUID
+	boots:=make(map[string]uuid.UUID)
 	for i:=0;i<2;i++{
 		node,resource,incarnation:=uuid.New(),uuid.New(),uuid.New()
 		pub,_,err:=ed25519.GenerateKey(nil)
 		if err!=nil{t.Fatal(err)}
-		boots=append(boots,incarnation)
+		boots[node.String()]=incarnation
 		_,err=db.ExecContext(ctx,`INSERT INTO elx_operation_targets(node_id,resource_id)
 			VALUES($1,$2)`,node,resource)
 		if err!=nil{t.Fatal(err)}
@@ -69,12 +67,18 @@ func TestAutoProvisionFromCanonicalPolicyManifest(t *testing.T) {
 
 	first,err:=store.AutoProvisionFromBindings(ctx,entitlement,schedule.ScheduleID,policy)
 	if err!=nil||len(first)!=2{t.Fatalf("automatic two-node enrollment: %d %v",len(first),err)}
-	for i,item:=range first {
-		if item.AlreadyExisted||item.Primed||item.Binding.Incarnation!=boots[i] ||
-			item.ResourceID.String()!=policy[i].Target.ResourceID ||
-			item.SubscriptionID!=policy[i].Subscription ||
-			item.Binding.Generation!=policy[i].Epoch {
-			t.Fatalf("untrusted or incorrect binding[%d]: %+v",i,item)
+	for _,item:=range first {
+		node:=item.Binding.NodeID.String()
+		var expected *policytransport.Binding
+		for i:=range policy {
+			if policy[i].Target.NodeID==node {expected=&policy[i];break}
+		}
+		if expected==nil || item.AlreadyExisted || item.Primed ||
+			item.Binding.Incarnation!=boots[node] ||
+			item.ResourceID.String()!=expected.Target.ResourceID ||
+			item.SubscriptionID!=expected.Subscription ||
+			item.Binding.Generation!=expected.Epoch {
+			t.Fatalf("incorrect signed assignment for node %s: %+v",node,item)
 		}
 	}
 	again,err:=store.AutoProvisionFromBindings(ctx,entitlement,schedule.ScheduleID,policy)
@@ -100,11 +104,8 @@ func TestAutoProvisionFromCanonicalPolicyManifest(t *testing.T) {
 	if _,err=store.AutoProvisionFromBindings(ctx,entitlement,schedule.ScheduleID,policy);
 		!errors.Is(err,journal.ErrConflict){t.Fatalf("ambiguous core boot accepted: %v",err)}
 	_,err=db.ExecContext(ctx,`UPDATE elx_core_identities SET revoked=true
-		WHERE node_id=$1 AND incarnation=$2`,policy[0].Target.NodeID,boots[0])
+		WHERE node_id=$1 AND incarnation=$2`,policy[0].Target.NodeID,boots[policy[0].Target.NodeID])
 	if err!=nil{t.Fatal(err)}
 	if _,err=store.AutoProvisionFromBindings(ctx,entitlement,schedule.ScheduleID,policy);
 		!errors.Is(err,journal.ErrConflict){t.Fatalf("old incarnation was silently rebound: %v",err)}
-	_,err=db.ExecContext(ctx,`SELECT clock_timestamp()`)
-	_ = time.Now()
-	_ = bytes.Equal
 }
