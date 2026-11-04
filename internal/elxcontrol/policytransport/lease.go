@@ -2,6 +2,7 @@ package policytransport
 
 import (
 	"context"
+	"database/sql"
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
@@ -22,12 +23,14 @@ type Lease struct {
 	Sequence int64
 	NotBefore int64
 	NotAfter int64
+	CeilingUp int64
+	CeilingDown int64
 	Signature []byte
 }
 
 func (t Lease) transcript() []byte {
-	return fmt.Appendf(nil,"elx-control-lease-v1\n%s\n%s\n%d\n%d\n%d",
-		t.NodeID,t.Subscription,t.Sequence,t.NotBefore,t.NotAfter)
+	return fmt.Appendf(nil,"elx-control-lease-v2\n%s\n%s\n%d\n%d\n%d\n%d\n%d",
+		t.NodeID,t.Subscription,t.Sequence,t.NotBefore,t.NotAfter,t.CeilingUp,t.CeilingDown)
 }
 type LeaseRequest struct { ResourceID string; Subscription string }
 
@@ -74,20 +77,23 @@ func (s *server) lease(ctx context.Context,in *wrapperspb.BytesValue)(*wrappersp
 	if binding==nil {
 		return nil,status.Error(codes.PermissionDenied,"lease target not assigned to authenticated node")
 	}
-	var eligible bool
-	err=s.db.QueryRowContext(ctx,`SELECT EXISTS (
-		SELECT 1 FROM elx_rate_grants g
+	var ceilingUp,ceilingDown int64
+	err=s.db.QueryRowContext(ctx,`SELECT g.committed_up,g.committed_down
+		FROM elx_rate_grants g
 		JOIN elx_entitlements e ON e.id=g.entitlement_id
 		WHERE g.node_id=$1 AND g.resource_id=$2 AND e.enabled=true
-		  AND e.valid_until>clock_timestamp() AND g.committed_up>0 AND g.committed_down>0
-	)`,reqNodeID(binding.Target.NodeID),reqNodeID(req.ResourceID)).Scan(&eligible)
+		  AND e.valid_until>clock_timestamp()
+		  AND g.committed_up>0 AND g.committed_down>0
+	`,reqNodeID(binding.Target.NodeID),reqNodeID(req.ResourceID)).
+		Scan(&ceilingUp,&ceilingDown)
+	if errors.Is(err,sql.ErrNoRows){return nil,status.Error(codes.FailedPrecondition,"subscription not eligible for a Control lease")}
 	if err!=nil {return nil,status.Error(codes.Unavailable,"subscription lease eligibility unavailable")}
-	if !eligible {return nil,status.Error(codes.FailedPrecondition,"subscription not eligible for a Control lease")}
 	now:=time.Now().UTC()
 	node,err:=uuid.Parse(binding.Target.NodeID)
 	if err!=nil {return nil,status.Error(codes.Internal,"invalid bound node UUID")}
 	t:=Lease{NodeID:node,Subscription:req.Subscription,Sequence:now.UnixNano(),
-		NotBefore:now.Unix(),NotAfter:now.Unix()+15}
+		NotBefore:now.Unix(),NotAfter:now.Unix()+15,
+		CeilingUp:ceilingUp,CeilingDown:ceilingDown}
 	t.Signature=ed25519.Sign(s.leaseKey,t.transcript())
 	payload,err:=json.Marshal(t)
 	if err!=nil {return nil,status.Error(codes.Internal,"cannot encode lease")}
