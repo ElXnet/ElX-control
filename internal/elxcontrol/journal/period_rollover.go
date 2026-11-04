@@ -90,16 +90,21 @@ func AdvancePeriod(ctx context.Context, db *sql.DB, scheduleID uuid.UUID, now ti
 	_, err = tx.ExecContext(ctx, `INSERT INTO elx_accounting_streams
 		(node_id,executor_id,incarnation,accounting_id,generation,period_id,
 		sequence,up_bytes,down_bytes,closed,primed,last_received_at)
-		SELECT node_id,executor_id,incarnation,accounting_id,generation,$2,
-			sequence,up_bytes,down_bytes,false,primed,last_received_at
-		FROM elx_accounting_streams WHERE period_id=$1`, oldID, newID)
+		SELECT st.node_id,st.executor_id,st.incarnation,st.accounting_id,st.generation,$2,
+			st.sequence,st.up_bytes,st.down_bytes,false,st.primed,st.last_received_at
+		FROM elx_accounting_streams st
+		JOIN elx_accounting_assignments a ON a.node_id=st.node_id
+		  AND a.executor_id=st.executor_id AND a.incarnation=st.incarnation
+		  AND a.accounting_id=st.accounting_id AND a.generation=st.generation
+		  AND a.period_id=st.period_id
+		WHERE st.period_id=$1 AND a.active`, oldID, newID)
 	if err != nil {
 		return out, err
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO elx_accounting_assignments
-		(node_id,executor_id,incarnation,accounting_id,generation,period_id,subscription_id,resource_id)
-		SELECT node_id,executor_id,incarnation,accounting_id,generation,$2,subscription_id,resource_id
-		FROM elx_accounting_assignments WHERE period_id=$1`, oldID, newID)
+		(node_id,executor_id,incarnation,accounting_id,generation,period_id,subscription_id,resource_id,active)
+		SELECT node_id,executor_id,incarnation,accounting_id,generation,$2,subscription_id,resource_id,true
+		FROM elx_accounting_assignments WHERE period_id=$1 AND active`, oldID, newID)
 	if err != nil {
 		return out, err
 	}
