@@ -70,7 +70,7 @@ func applyMigration(ctx context.Context, tx *sql.Tx, version int, ddl string) er
 			return fmt.Errorf("Control migration %03d checksum mismatch", version)
 		}
 	case errors.Is(err, sql.ErrNoRows):
-		for _, stmt := range strings.Split(ddl, ";") {
+		for _, stmt := range splitSQLStatements(ddl) {
 			if strings.TrimSpace(stmt) == "" {
 				continue
 			}
@@ -85,4 +85,93 @@ func applyMigration(ctx context.Context, tx *sql.Tx, version int, ddl string) er
 		return err
 	}
 	return nil
+}
+
+// splitSQLStatements handles SQL comments, strings, identifiers and dollar
+// quotes so a semicolon in a comment or a future procedural migration cannot
+// become an executable statement. Migrations remain checksummed verbatim.
+func splitSQLStatements(src string) []string {
+	var statements []string
+	var statement strings.Builder
+	var dollarTag string
+	state := byte(0) // normal, single quote, double quote, line/block comment, dollar quote.
+	for i := 0; i < len(src); {
+		c := src[i]
+		hasNext := i+1 < len(src)
+		switch state {
+		case 0:
+			switch {
+			case c == '-' && hasNext && src[i+1] == '-':
+				state = 'l'; i += 2
+			case c == '/' && hasNext && src[i+1] == '*':
+				state = 'b'; i += 2
+			case c == '\'':
+				state = 's'; statement.WriteByte(c); i++
+			case c == '"':
+				state = 'q'; statement.WriteByte(c); i++
+			case c == '$':
+				j := i+1
+				for j < len(src) && (src[j] == '_' || src[j] >= '0' && src[j] <= '9' ||
+					src[j] >= 'A' && src[j] <= 'Z' || src[j] >= 'a' && src[j] <= 'z') {
+					j++
+				}
+				if j < len(src) && src[j] == '$' {
+					dollarTag = src[i:j+1]
+					statement.WriteString(dollarTag)
+					i = j+1
+					state = 'd'
+				} else {
+					statement.WriteByte(c); i++
+				}
+			case c == ';':
+				if strings.TrimSpace(statement.String()) != "" {
+					statements = append(statements, statement.String())
+				}
+				statement.Reset()
+				i++
+			default:
+				statement.WriteByte(c); i++
+			}
+		case 'l':
+			if c == '\n' {
+				state = 0
+				statement.WriteByte('\n')
+			}
+			i++
+		case 'b':
+			if c == '*' && hasNext && src[i+1] == '/' {
+				state = 0
+				i += 2
+				statement.WriteByte(' ')
+			} else {
+				if c == '\n' { statement.WriteByte('\n') }
+				i++
+			}
+		case 's', 'q':
+			statement.WriteByte(c)
+			i++
+			var quote byte = '\''
+			if state == 'q' { quote = '"' }
+			if c == quote {
+				if i < len(src) && src[i] == quote {
+					statement.WriteByte(src[i]); i++
+				} else {
+					state = 0
+				}
+			}
+		case 'd':
+			if strings.HasPrefix(src[i:], dollarTag) {
+				statement.WriteString(dollarTag)
+				i += len(dollarTag)
+				state = 0
+			} else {
+				statement.WriteByte(c)
+				i++
+			}
+		}
+	}
+	if strings.TrimSpace(statement.String()) != "" {
+		statements = append(statements, statement.String())
+	}
+	return statements
 }
