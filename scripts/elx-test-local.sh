@@ -4,9 +4,19 @@ set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 core=$(cd -- "${ELXRAY_SOURCE:-$root/../ElXray}" && pwd)
-for tool in go git openssl python3; do
-    command -v "$tool" >/dev/null || { echo "Required command: $tool" >&2; exit 1; }
+for tool in go git openssl python3 gcc; do
+    command -v "$tool" >/dev/null || { echo "MISSING: $tool (install in WSL Ubuntu)" >&2; exit 1; }
+    echo "OK: $tool"
 done
+echo "Go version: $(go version)"
+if [[ -z "${ELX_CONTROL_POSTGRES_DSN:-}" ]]; then
+    command -v docker >/dev/null || { echo 'MISSING: docker (enable Docker Desktop WSL integration)' >&2; exit 1; }
+    if ! docker info >/dev/null 2>&1; then
+        echo 'Docker Engine unavailable: start Docker Desktop and enable Settings > Resources > WSL Integration for Ubuntu.' >&2
+        exit 1
+    fi
+    echo 'OK: Docker Engine'
+fi
 
 work=$(mktemp -d)
 container=
