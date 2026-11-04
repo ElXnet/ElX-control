@@ -30,10 +30,16 @@ type RemoteBinding struct {
 	ScheduleID   uuid.UUID
 }
 
+// Valid validates the local node configuration; the server additionally
+// verifies that the node UUID matches its authenticated mTLS certificate.
+func (b RemoteBinding) Valid() bool {
+	return b.NodeID != uuid.Nil && b.ExecutorID != uuid.Nil &&
+		b.Incarnation != uuid.Nil && b.AccountingID != uuid.Nil &&
+		b.Generation > 0 && b.ScheduleID != uuid.Nil
+}
+
 func (b RemoteBinding) valid(authenticated uuid.UUID) bool {
-	return authenticated != uuid.Nil && b.NodeID == authenticated &&
-		b.ExecutorID != uuid.Nil && b.Incarnation != uuid.Nil &&
-		b.AccountingID != uuid.Nil && b.Generation > 0 && b.ScheduleID != uuid.Nil
+	return b.Valid() && authenticated == b.NodeID
 }
 
 type RemoteChallenge struct {
