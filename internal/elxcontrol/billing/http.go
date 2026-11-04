@@ -1,7 +1,6 @@
 package billing
 
 import (
- "context"
  "crypto/ed25519"
  "database/sql"
  "encoding/base64"
@@ -11,7 +10,6 @@ import (
  "net/http"
  "os"
  "strings"
- "time"
 
  "github.com/ElXnet/ElX-control/internal/elxcontrol/policytransport"
 )
@@ -89,18 +87,21 @@ func Handler(db *sql.DB,public ed25519.PublicKey,
  mux.HandleFunc("POST /provision/v1/claim",func(w http.ResponseWriter,r *http.Request){
   // Exactly one short-lived claim; duplicate polling never returns multiple
   // active leases for the same job. No secrets go through public panel API.
-  if policySource!=nil{
-   bindings,err:=policySource()
-   if err!=nil {
+  job,err:=ClaimNext(r.Context(),db)
+  if errors.Is(err,ErrNotFound) && policySource!=nil {
+   // First create the profile disabled even without any policy/grant.
+   // Only activation requires the trusted manifest and live core proof.
+   bindings,loadErr:=policySource()
+   if loadErr!=nil {
     respond(w,503,map[string]string{"error":"trusted manifest unavailable"});return
    }
    if len(bindings)>0 {
-    if _,err=QueueReadyEnables(r.Context(),db,bindings);err!=nil{
+    if _,loadErr=QueueReadyEnables(r.Context(),db,bindings);loadErr!=nil{
      respond(w,503,map[string]string{"error":"profile readiness unavailable"});return
     }
    }
+   job,err=ClaimNext(r.Context(),db)
   }
-  job,err:=ClaimNext(r.Context(),db)
   if errors.Is(err,ErrNotFound){w.WriteHeader(http.StatusNoContent);return}
   if err!=nil{respond(w,statusCode(err),map[string]string{"error":"provisioning unavailable"});return}
   respond(w,200,job)
@@ -120,5 +121,3 @@ func Handler(db *sql.DB,public ed25519.PublicKey,
  return mux
 }
 
-var _ = context.Background
-var _ = time.Second
