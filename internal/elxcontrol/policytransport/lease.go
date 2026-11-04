@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/ElXnet/ElX-control/internal/elxcontrol/journal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -77,17 +78,25 @@ func (s *server) lease(ctx context.Context,in *wrapperspb.BytesValue)(*wrappersp
 	if binding==nil {
 		return nil,status.Error(codes.PermissionDenied,"lease target not assigned to authenticated node")
 	}
+	var entitlement string
 	var ceilingUp,ceilingDown int64
-	err=s.db.QueryRowContext(ctx,`SELECT g.committed_up,g.committed_down
+	err=s.db.QueryRowContext(ctx,`SELECT g.entitlement_id::text,g.committed_up,g.committed_down
 		FROM elx_rate_grants g
 		JOIN elx_entitlements e ON e.id=g.entitlement_id
 		WHERE g.node_id=$1 AND g.resource_id=$2 AND e.enabled=true
 		  AND e.valid_until>clock_timestamp()
 		  AND g.committed_up>0 AND g.committed_down>0
 	`,reqNodeID(binding.Target.NodeID),reqNodeID(req.ResourceID)).
-		Scan(&ceilingUp,&ceilingDown)
+		Scan(&entitlement,&ceilingUp,&ceilingDown)
 	if errors.Is(err,sql.ErrNoRows){return nil,status.Error(codes.FailedPrecondition,"subscription not eligible for a Control lease")}
 	if err!=nil {return nil,status.Error(codes.Unavailable,"subscription lease eligibility unavailable")}
+	// A live FUP needs a recent signed usage sequence for every active
+	// rate grant, including the exact subscription/resource requesting this
+	// lease. Otherwise Control must not authorize continued unmetered VPN.
+	ready,err:=journal.SignedFUPLeaseReady(ctx,s.db,entitlement,
+		binding.Target.NodeID,binding.Target.ResourceID,req.Subscription)
+	if err!=nil{return nil,status.Error(codes.Unavailable,"signed usage eligibility unavailable")}
+	if !ready{return nil,status.Error(codes.FailedPrecondition,"signed FUP accounting is unavailable or stale")}
 	now:=time.Now().UTC()
 	node,err:=uuid.Parse(binding.Target.NodeID)
 	if err!=nil {return nil,status.Error(codes.Internal,"invalid bound node UUID")}
