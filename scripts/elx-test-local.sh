@@ -51,7 +51,7 @@ export ELXRAY_BIN="$work/elxray" ELX_CONTROL_BIN="$work/elx-control"
 export TMPDIR="$work"
 (
     cd "$core"
-    go test -race -count=1 ./common/subscriptionrate ./app/policy/... ./app/dispatcher ./proxy/vless/inbound
+    go test -race -count=1 ./common/sessionfence ./common/subscriptionrate ./app/policy/... ./app/dispatcher ./proxy/vless/inbound
     go build -o "$ELXRAY_BIN" ./main
 )
 (
