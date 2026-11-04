@@ -47,3 +47,16 @@ func usageCoverage(ctx context.Context,db *sql.DB,args []string)error{
 	if err!=nil{return err}
 	return json.NewEncoder(os.Stdout).Encode(result)
 }
+
+func activateFUP(ctx context.Context,db *sql.DB,args []string)error{
+	var entitlement,schedule string
+	fs:=flag.NewFlagSet("activate-fup",flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.StringVar(&entitlement,"entitlement","","purchased entitlement UUID")
+	fs.StringVar(&schedule,"schedule","","staged FUP schedule UUID")
+	if err:=fs.Parse(args);err!=nil{return err}
+	if fs.NArg()!=0||entitlement==""||schedule==""{return errors.New("activate-fup requires -entitlement and -schedule")}
+	result,err:=(management.SQLStore{DB:db}).ActivateSchedule(ctx,entitlement,schedule)
+	if err!=nil{return fmt.Errorf("activate signed FUP schedule: %w",err)}
+	return json.NewEncoder(os.Stdout).Encode(result)
+}
