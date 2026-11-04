@@ -282,6 +282,7 @@ func Handler(store Store) http.Handler {
 		if err:=decoder.Decode(&spec);err!=nil{writeErr(w,http.StatusBadRequest);return}
 		var extra any
 		if err:=decoder.Decode(&extra);!errors.Is(err,io.EOF){writeErr(w,http.StatusBadRequest);return}
+		if !validSchedule(spec){writeErr(w,http.StatusBadRequest);return}
 		result,err:=store.CreateSchedule(r.Context(),id,spec)
 		if err!=nil{writeErr(w,errorStatus(err));return}
 		status:=http.StatusCreated
