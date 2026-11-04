@@ -12,6 +12,7 @@ Standalone Go control-plane module for the ElX VPN service. **ElX-control is the
 - Per-entitlement shared upload/download rate grants and automatic core-signed deny-and-drain barriers before releasing reduced commitments.
 - Calendar-aware FUP rollover (day/week/month) with atomic source-watermark inheritance and dynamic current-period collection.
 - Long-running mTLS node policy, session-drain, signed usage and 15-second lease agents, FUP maintenance loop, RAWI API client, and tested allocation primitives.
+- Canonical policy-manifest driven FUP accounting: automatic grant-to-subscription mapping from pinned core keys/epochs, deterministic assignment identifiers, and live node-scoped assignment discovery over mTLS (static file is optional).
 
 See `docs/elx/policy-smoke.ru.md` for Windows/WSL, PostgreSQL and two-node live VLESS integration checks.
 
@@ -34,3 +35,5 @@ This checks the **standalone** Control module. Scripts create an isolated Postgr
 Core-side signed VLESS deny/drain evidence, Control-authorized automatic session release, signed accounting, 15-second fail-closed network-partition leases, and rate-reduction barriers have been implemented in the working branches. For production, mandatory lease mode must be enabled on both core and node agent with provisioned trust anchors and the persisted policy store. Remaining integration: verified provisioning that binds each device's authenticated VLESS profile to its entitlement, billing, email recovery/verification and production-grade per-IP auth throttling, node/key rotation and recovery procedures, and multi-device failure/load tests. The invite-only customer cabinet routes and ownership checks exist in the integration branch but still need release verification. Do not infer device identity from IP addresses, HWIDs or copied subscription URLs. Local token buckets permit a bounded burst; the grant ledger enforces conservative allocations, not mathematically zero packet-level bursts.
 
 Do not merge this branch or deploy as a finished business service solely on the basis of unit tests. All local and GitHub Actions test results should be inspected first.
+
+For verified assignment bootstrapping run `elx-control auto-provision-usage -entitlement UUID -schedule UUID` on the Control host with `ELX_POLICY_BINDING` pointing to the same trusted manifest as `serve-policy`. Nodes running `serve-usage` discover only their own assignments over mTLS on each poll. Payment processing and safe core-incarnation rotation are separate workflows.
