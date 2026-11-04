@@ -86,6 +86,9 @@ func Handler(db *sql.DB,public ed25519.PublicKey,
   // Exactly one short-lived claim; duplicate polling never returns multiple
   // active leases for the same job. No secrets go through public panel API.
   job,err:=ClaimNext(r.Context(),db)
+  if errors.Is(err,ErrNotFound) {
+   job,err=ClaimExpiryRefresh(r.Context(),db)
+  }
   if errors.Is(err,ErrNotFound) && policySource!=nil {
    // First create the profile disabled even without any policy/grant.
    // Only activation requires the trusted manifest and live core proof.
@@ -111,6 +114,11 @@ func Handler(db *sql.DB,public ed25519.PublicKey,
    Operation string `json:"operation"`
   }
   if !strictJSON(w,r,&input){return}
+  if input.Operation=="renew-expiry" {
+   err:=ConfirmExpiryRefresh(r.Context(),db,input.JobID,input.ClaimID)
+   if err!=nil{respond(w,statusCode(err),map[string]string{"error":"expiry acknowledgement rejected"});return}
+   respond(w,200,map[string]string{"status":"done"});return
+  }
   status,err:=ConfirmJob(r.Context(),db,input.JobID,input.ClaimID,input.Operation)
   if err!=nil{respond(w,statusCode(err),map[string]string{"error":"provisioning acknowledgement rejected"});return}
   respond(w,200,map[string]string{"status":status})
