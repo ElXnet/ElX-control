@@ -46,7 +46,7 @@ CREATE TABLE elx_paid_profiles (
 CREATE TABLE elx_profile_provision_jobs (
     id uuid PRIMARY KEY,
     profile_id uuid NOT NULL UNIQUE REFERENCES elx_paid_profiles(id),
-    status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','leased','staged')),
+    status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','leased','staged','enable_pending','enable_leased','active')),
     lease_owner uuid,
     lease_until timestamptz,
     attempts integer NOT NULL DEFAULT 0 CHECK (attempts>=0),
