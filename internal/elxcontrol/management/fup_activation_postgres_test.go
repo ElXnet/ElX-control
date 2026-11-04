@@ -37,6 +37,12 @@ func TestStagedFUPDoesNotInterruptVPNUntilSignedActivation(t *testing.T) {
 	var enabled bool
 	if err=db.QueryRowContext(ctx,"SELECT enabled FROM elx_period_schedules WHERE id=$1",spec.ScheduleID).Scan(&enabled);err!=nil{t.Fatal(err)}
 	if enabled{t.Fatal("new customer FUP immediately interrupted an unprovisioned VPN")}
+	if _,err=db.ExecContext(ctx,`INSERT INTO elx_fup_events(period_id,reduced_up,reduced_down)
+		VALUES($1,100,100)`,created.PeriodID);err!=nil{t.Fatal(err)}
+	queued,err:=journal.ReconcileFUP(ctx,db,e.String())
+	if err!=nil||queued.Active||queued.Queued!=0{
+		t.Fatalf("staged FUP changed rate budget: %+v %v",queued,err)
+	}
 	// Before activation, missing accounting is NOT a lease refusal.
 	ready,err:=journal.SignedFUPLeaseReady(ctx,db,e.String(),node.String(),res.String(),"lab")
 	if err!=nil||!ready{t.Fatalf("staged FUP rejected valid VPN lease: %v %v",ready,err)}
@@ -61,6 +67,10 @@ func TestStagedFUPDoesNotInterruptVPNUntilSignedActivation(t *testing.T) {
 	if err!=nil||receipt.Crossed{t.Fatalf("staging baseline: %+v %v",receipt,err)}
 	active,err:=store.ActivateSchedule(ctx,e.String(),spec.ScheduleID)
 	if err!=nil||!active.Enabled||!active.Coverage.Ready{t.Fatalf("cannot activate ready FUP: %+v %v",active,err)}
+	queued,err=journal.ReconcileFUP(ctx,db,e.String())
+	if err!=nil||!queued.Active||queued.Queued!=1{
+		t.Fatalf("verified activated FUP did not queue reduction: %+v %v",queued,err)
+	}
 	again,err:=store.ActivateSchedule(ctx,e.String(),spec.ScheduleID)
 	if err!=nil||!again.AlreadyEnabled{t.Fatalf("activation replay: %+v %v",again,err)}
 	ready,err=journal.SignedFUPLeaseReady(ctx,db,e.String(),node.String(),res.String(),"lab")
@@ -77,5 +87,4 @@ func TestStagedFUPDoesNotInterruptVPNUntilSignedActivation(t *testing.T) {
 	if _,err=accounting.CollectCurrent(context.Background(),db,node,uuid.MustParse(spec.ScheduleID),assignment,r);err!=nil{t.Fatal(err)}
 	ready,err=journal.SignedFUPLeaseReady(ctx,db,e.String(),node.String(),res.String(),"lab")
 	if err!=nil||!ready{t.Fatalf("new trusted readback did not restore lease: %v %v",ready,err)}
-	_ = created
 }
