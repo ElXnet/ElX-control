@@ -156,6 +156,7 @@ type SignedCoverage struct {
 	ExpectedGrants int64  `json:"expectedGrants"`
 	AssignedGrants int64  `json:"assignedGrants"`
 	PrimedGrants   int64  `json:"primedGrants"`
+	FreshGrants    int64  `json:"freshGrants"`
 	Ready          bool   `json:"ready"`
 }
 
@@ -186,10 +187,21 @@ func (s SQLStore) UsageCoverage(ctx context.Context,entitlement,schedule string)
 			JOIN elx_core_identities c ON c.node_id=a.node_id AND c.incarnation=a.incarnation
 			WHERE a.period_id=$2 AND g.entitlement_id=$1
 			AND g.committed_up>0 AND g.committed_down>0
-			AND st.primed AND NOT st.closed AND NOT c.revoked)`,
-		entitlement,period).Scan(&out.ExpectedGrants,&out.AssignedGrants,&out.PrimedGrants)
+			AND st.primed AND NOT st.closed AND NOT c.revoked),
+		(SELECT count(*) FROM elx_accounting_assignments a
+			JOIN elx_rate_grants g ON g.node_id=a.node_id AND g.resource_id=a.resource_id
+			JOIN elx_accounting_streams st ON st.node_id=a.node_id
+			AND st.executor_id=a.executor_id AND st.incarnation=a.incarnation
+			AND st.accounting_id=a.accounting_id AND st.generation=a.generation
+			AND st.period_id=a.period_id
+			JOIN elx_core_identities c ON c.node_id=a.node_id AND c.incarnation=a.incarnation
+			WHERE a.period_id=$2 AND g.entitlement_id=$1
+			AND g.committed_up>0 AND g.committed_down>0
+			AND st.primed AND NOT st.closed AND NOT c.revoked
+			AND st.last_received_at>=clock_timestamp()-interval '30 seconds')`,
+		entitlement,period).Scan(&out.ExpectedGrants,&out.AssignedGrants,&out.PrimedGrants,&out.FreshGrants)
 	if err!=nil{return out,err}
-	out.Ready=out.ExpectedGrants>0 && out.ExpectedGrants==out.PrimedGrants &&
-		out.ExpectedGrants==out.AssignedGrants
+	out.Ready=out.ExpectedGrants>0 && out.ExpectedGrants==out.FreshGrants &&
+		out.ExpectedGrants==out.PrimedGrants && out.ExpectedGrants==out.AssignedGrants
 	return out,nil
 }
