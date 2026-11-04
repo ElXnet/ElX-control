@@ -435,4 +435,8 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 	if err!=nil || len(discovered)!=0 {
 		t.Fatalf("revoked core remained in dynamically discovered bindings: %+v %v",discovered,err)
 	}
+	if err:=good.Invoke(ctx,leaseRoute,wrapperspb.Bytes(leaseInput),&leaseWire);
+		status.Code(err)!=codes.FailedPrecondition {
+		t.Fatalf("revoked core renewed VPN Control lease: %v",err)
+	}
 }
