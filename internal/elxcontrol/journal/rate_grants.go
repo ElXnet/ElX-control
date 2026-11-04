@@ -190,7 +190,9 @@ func FinalizeRateMove(ctx context.Context, db *sql.DB, entitlement string, targe
 	if !applied {
 		return ErrPending
 	}
-	if desired.Up < current.Up || desired.Down < current.Down {
+	needBarrier:=desired.Up < current.Up || desired.Down < current.Down ||
+		(desired.Up==0 && desired.Down==0)
+	if needBarrier {
 		message := rateBarrierMessage(entitlement, target, operationID, epoch, revision, desired)
 		if len(key) != ed25519.PublicKeySize || !ed25519.Verify(ed25519.PublicKey(key), message, barrier) {
 			return ErrRateBarrier
@@ -205,7 +207,7 @@ func FinalizeRateMove(ctx context.Context, db *sql.DB, entitlement string, targe
 		barrier_signature=$4,barrier_at=CASE WHEN $4::bytea IS NOT NULL THEN clock_timestamp() ELSE NULL END
 		WHERE node_id=$1 AND resource_id=$2 AND operation_id=$3`,
 		target.NodeID, target.ResourceID, operationID, func() []byte {
-			if desired.Up<current.Up || desired.Down<current.Down {return barrier}
+			if needBarrier{return barrier}
 			return nil
 		}())
 	if err != nil {
