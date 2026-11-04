@@ -196,6 +196,8 @@ type service interface {
 	next(context.Context, *emptypb.Empty) (*wrapperspb.BytesValue, error)
 	confirm(context.Context, *wrapperspb.BytesValue) (*emptypb.Empty, error)
 	lease(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
+	nextRateBarrier(context.Context, *emptypb.Empty) (*wrapperspb.BytesValue, error)
+	confirmRateBarrier(context.Context, *wrapperspb.BytesValue) (*emptypb.Empty, error)
 }
 
 // Register installs policy delivery for provisioned node bindings. Callers must configure
@@ -220,6 +222,8 @@ func Register(g *grpc.Server, db *sql.DB, bindings ...Binding) error {
 			{MethodName: "Next", Handler: handler("Next", (*server).next)},
 			{MethodName: "Confirm", Handler: handler("Confirm", (*server).confirm)},
 			{MethodName: "Lease", Handler: handler("Lease", (*server).lease)},
+			{MethodName: "RateBarrierNext", Handler: handler("RateBarrierNext", (*server).nextRateBarrier)},
+			{MethodName: "RateBarrierConfirm", Handler: handler("RateBarrierConfirm", (*server).confirmRateBarrier)},
 		},
 	}, &server{db: db, nodes: nodes, leaseKey:leaseKey})
 	return nil
