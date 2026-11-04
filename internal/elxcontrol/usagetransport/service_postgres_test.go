@@ -196,6 +196,11 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 		(entitlement_id,node_id,resource_id,committed_up,committed_down,epoch,barrier_public_key)
 		VALUES($1,$2,$3,100,100,1,$4)`,entitlement,binding.NodeID,leaseResource,[]byte(pub))
 	if err!=nil {t.Fatal(err)}
+	// Bind signed accounting to exactly the same purchased rate grant used
+	// by the authoritative policy manifest.
+	_,err=db.ExecContext(ctx,`UPDATE elx_accounting_assignments SET resource_id=$1
+		WHERE node_id=$2 AND period_id=$3`,leaseResource,binding.NodeID,period)
+	if err!=nil{t.Fatal(err)}
 	leasePub,leasePrivate,err:=ed25519.GenerateKey(rand.Reader)
 	if err!=nil {t.Fatal(err)}
 	seedPath:=filepath.Join(t.TempDir(),"lease-seed")
@@ -226,6 +231,14 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 		return conn
 	}
 	good,foreign:=dial(clientCert),dial(foreignCert)
+	discovered,err:=DiscoverBindings(ctx,good)
+	if err!=nil || len(discovered)!=1 || discovered[0]!=binding {
+		t.Fatalf("authoritative node binding discovery: %+v %v",discovered,err)
+	}
+	other,err:=DiscoverBindings(ctx,foreign)
+	if err!=nil || len(other)!=0 {
+		t.Fatalf("foreign node discovered private accounting assignments: %+v %v",other,err)
+	}
 	leaseInput,err:=json.Marshal(policytransport.LeaseRequest{
 		ResourceID:leaseResource.String(),Subscription:sub,
 	})
@@ -369,4 +382,11 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 	if err:=db.QueryRowContext(ctx,`SELECT state FROM elx_session_owners
 		WHERE id=$1`,owner).Scan(&state);err!=nil {t.Fatal(err)}
 	if state!="released" {t.Fatalf("verified fence did not release owner: %s",state)}
+	_,err=db.ExecContext(ctx,`UPDATE elx_core_identities SET revoked=true
+		WHERE node_id=$1 AND incarnation=$2`,binding.NodeID,binding.Incarnation)
+	if err!=nil{t.Fatal(err)}
+	discovered,err=DiscoverBindings(ctx,good)
+	if err!=nil || len(discovered)!=0 {
+		t.Fatalf("revoked core remained in dynamically discovered bindings: %+v %v",discovered,err)
+	}
 }
