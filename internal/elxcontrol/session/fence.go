@@ -17,24 +17,26 @@ var ErrFence = errors.New("session fence receipt rejected")
 // owned it. A core may sign this only after durable denial and flow drain.
 type Fence struct {
 	OwnerID     uuid.UUID
+	ProfileID   uuid.UUID
 	Generation  int64
 	NodeID      uuid.UUID
 	Incarnation uuid.UUID
 }
 
 func FenceTranscript(f Fence) []byte {
-	out := []byte("elx-session-fence-v1\x00")
+	out := []byte("elx-session-fence-v2\x00")
 	out = append(out, f.OwnerID[:]...)
 	out = binary.BigEndian.AppendUint64(out, uint64(f.Generation))
 	out = append(out, f.NodeID[:]...)
-	return append(out, f.Incarnation[:]...)
+	out = append(out, f.Incarnation[:]...)
+	return append(out, f.ProfileID[:]...)
 }
 
 // ReleaseAfterFence frees a slot only for the generation named in a signed
 // fence receipt. The caller supplies the registered core key for the
 // authenticated node and incarnation, never a key from the receipt.
 func ReleaseAfterFence(ctx context.Context, db *sql.DB, f Fence, coreKey ed25519.PublicKey, signature []byte) error {
-	if f.OwnerID == uuid.Nil || f.Generation <= 0 || f.NodeID == uuid.Nil ||
+	if f.OwnerID == uuid.Nil || f.ProfileID == uuid.Nil || f.Generation <= 0 || f.NodeID == uuid.Nil ||
 		f.Incarnation == uuid.Nil || len(coreKey) != ed25519.PublicKeySize ||
 		!ed25519.Verify(coreKey, FenceTranscript(f), signature) {
 		return ErrFence
@@ -76,8 +78,8 @@ func ReleaseAfterFence(ctx context.Context, db *sql.DB, f Fence, coreKey ed25519
 	var state string
 	var prior []byte
 	err = tx.QueryRowContext(ctx, `SELECT state,fence_signature FROM elx_session_owners
-		WHERE id=$1 AND generation=$2 AND node_id=$3 AND core_incarnation=$4`,
-		f.OwnerID, f.Generation, f.NodeID, f.Incarnation).Scan(&state, &prior)
+		WHERE id=$1 AND generation=$2 AND node_id=$3 AND core_incarnation=$4 AND profile_id=$5`,
+		f.OwnerID, f.Generation, f.NodeID, f.Incarnation, f.ProfileID).Scan(&state, &prior)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrFence
 	}
