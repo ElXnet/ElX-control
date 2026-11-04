@@ -248,4 +248,3 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 		WHERE id=$1`,owner).Scan(&state);err!=nil {t.Fatal(err)}
 	if state!="released" {t.Fatalf("verified fence did not release owner: %s",state)}
 }
-}
