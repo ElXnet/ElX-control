@@ -33,11 +33,6 @@ func (s SQLStore) ActivateSchedule(ctx context.Context,entitlement,schedule stri
 		WHERE id=$1 AND enabled AND valid_until>clock_timestamp() FOR UPDATE`,entitlement).Scan(&owned)
 	if errors.Is(err,sql.ErrNoRows){return result,ErrNotFound}
 	if err!=nil{return result,err}
-	var capUp,capDown int64
-	err=tx.QueryRowContext(ctx,`SELECT up_limit,down_limit
-		FROM elx_rate_budgets WHERE entitlement_id=$1 FOR UPDATE`,entitlement).Scan(&capUp,&capDown)
-	if errors.Is(err,sql.ErrNoRows)||capUp<=0||capDown<=0{return result,ErrSchedule}
-	if err!=nil{return result,err}
 	var enabled bool
 	err=tx.QueryRowContext(ctx,`SELECT s.enabled FROM elx_period_schedules s
 		JOIN elx_usage_periods p ON p.id=s.current_period_id
@@ -45,6 +40,13 @@ func (s SQLStore) ActivateSchedule(ctx context.Context,entitlement,schedule stri
 		AND p.starts_at<=clock_timestamp() AND p.ends_at>clock_timestamp()
 		FOR UPDATE OF s`,schedule,entitlement).Scan(&enabled)
 	if errors.Is(err,sql.ErrNoRows){return result,ErrNotFound}
+	if err!=nil{return result,err}
+	// Keep the same lock order as signed CollectCurrent: schedule, then
+	// rate budget. A concurrent fresh sample must not deadlock activation.
+	var capUp,capDown int64
+	err=tx.QueryRowContext(ctx,`SELECT up_limit,down_limit
+		FROM elx_rate_budgets WHERE entitlement_id=$1 FOR UPDATE`,entitlement).Scan(&capUp,&capDown)
+	if errors.Is(err,sql.ErrNoRows)||capUp<=0||capDown<=0{return result,ErrSchedule}
 	if err!=nil{return result,err}
 	// Use the same transaction snapshot/locks for coverage and activation.
 	// No other user can authorize a missing stream by choosing a different
