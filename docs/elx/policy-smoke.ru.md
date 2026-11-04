@@ -130,8 +130,7 @@ Control разрешает состояние `released` **только** есл
 следующий опрос повторяет операцию. Подписи по чужому профилю, старой
 генерации или без запроса на закрытие отвергаются.
 
-**Для личного кабинета** нужно вызывать `session.QueueDrain` через
-авторизованный backend после проверки владельца подписки. Не публикуйте
+**Личный кабинет** вызывает `session.QueueDrain` только через авторизованный backend Control, проверяющий связь `account → entitlement` и CSRF-токен. Не публикуйте
 команду `enqueue-drain` как анонимный HTTP endpoint. Запрос пользователя
 «отключить устройство» — это начало операции; подтверждение её
 завершения происходит только после проверенного сообщения от ядра.
@@ -244,7 +243,7 @@ export ELX_USAGE_BINDINGS="/etc/elx/usage-bindings.json"
 
 ```powershell
 $runner = Join-Path $env:TEMP "run-elx-windows.ps1"
-Invoke-WebRequest "https://raw.githubusercontent.com/ElXnet/ElX-control/feat/multinode-policy/scripts/run-elx-windows.ps1" -OutFile $runner
+Invoke-WebRequest "https://raw.githubusercontent.com/ElXnet/ElX-control/feat/elx-management-stage3/scripts/run-elx-windows.ps1" -OutFile $runner
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runner -Workspace "C:\ElX-test"
 ```
 
@@ -308,7 +307,7 @@ FUP планирует **только снижения** и не увеличи�
 
 ```bash
 git clone --branch restrict-runtime-unlimited https://github.com/ElXnet/ElXray.git
-git clone --branch feat/multinode-policy https://github.com/ElXnet/ElX-control.git
+git clone --branch feat/elx-management-stage3 https://github.com/ElXnet/ElX-control.git
 cd ElX-control
 set -o pipefail
 bash scripts/elx-test-local.sh 2>&1 | tee elx-test.log
@@ -324,7 +323,7 @@ bash scripts/elx-test-local.sh 2>&1 | tee elx-test.log
 
 Запускайте команды из Linux или WSL. Достаточно одного компьютера. Go и OpenSSL должны быть доступны внутри WSL, Docker Desktop должен быть подключён к этой WSL-дистрибуции. Скрипт применяет миграцию и оставляет записи в отдельной тестовой базе.
 
-1. Возьмите ветку `feat/multinode-policy` в ElX-control и `restrict-runtime-unlimited` в ElXray. В примере репозитории лежат рядом.
+1. Возьмите ветку `feat/elx-management-stage3` в ElX-control и `restrict-runtime-unlimited` в ElXray. В примере репозитории лежат рядом.
 2. Соберите бинарники. Версию Go берите из `go.mod` ElX-control.
 
    ```bash
