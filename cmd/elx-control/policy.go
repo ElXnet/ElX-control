@@ -72,10 +72,10 @@ func loadBindings() ([]policytransport.Binding, error) {
 }
 
 func servePolicy(ctx context.Context, db *sql.DB) error {
-	bindings, err := loadBindings()
-	if err != nil {
-		return err
-	}
+	// Validate the initial manifest before exposing the mTLS service.
+	// Each subsequent request re-reads the canonical manifest; a failed
+	// reload blocks policy delivery instead of using obsolete mappings.
+	if _,err:=loadBindings();err!=nil{return err}
 	cfg, err := transportTLS()
 	if err != nil {
 		return err
@@ -91,7 +91,7 @@ func servePolicy(ctx context.Context, db *sql.DB) error {
 	}
 	defer listener.Close()
 	server := grpc.NewServer(grpc.Creds(credentials.NewTLS(cfg)), grpc.MaxRecvMsgSize(4096))
-	if err := policytransport.Register(server, db, bindings...); err != nil {
+	if err := policytransport.RegisterWithSource(server, db, loadBindings); err != nil {
 		return err
 	}
 	if err := usagetransport.Register(server, db); err != nil {
