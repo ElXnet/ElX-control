@@ -1,7 +1,33 @@
 # ElX Control
 
-Сервис управления политиками ElX и CLI агента ноды. Код перенесён из ElX-ui на базе коммита d2201442f159795902198fa98f8ff6ab9bd1a350. Предыдущий стенд остаётся доступен в истории ElX-ui.
+Standalone Go control-plane module for the ElX VPN service. The active implementation lives on the `feat/multinode-policy` branch, mirrored during the integration transition in `ElX-ui/elx-control-journal`.
 
-Control хранит очередь команд в PostgreSQL. Агент получает свою команду по mTLS и применяет её через локальный API ElXray. Перед записью агент проверяет ключ конкретного ядра, а Control принимает подписанное подтверждение для конкретной ноды, ресурса и операции. Сервер может обслуживать несколько заранее заданных нод и ресурсов.
+## Implemented boundaries
 
-[Локальная проверка на Windows через WSL и Docker](docs/elx/policy-smoke.ru.md).
+- Durable PostgreSQL policy journal, revisions, and operation-id replay protection.
+- mTLS-authenticated node delivery and pinned Ed25519 policy readback.
+- Durable session-slot reservations and one-time device proofs.
+- Generation-fenced release requiring a registered core signing key.
+- Cumulative ElXray usage readback, verified collection, and per-period FUP events.
+- Per-entitlement shared upload/download grant ledger and reduction barriers.
+- RAWI provider API client and tested weighted allocation primitives.
+
+See `docs/elx/policy-smoke.ru.md` for Windows/WSL, PostgreSQL and two-node live VLESS integration checks.
+
+## Windows quick start
+
+With Git for Windows, WSL Ubuntu, Docker Desktop and a Go toolchain installed, download and execute:
+
+```powershell
+$runner = Join-Path $env:TEMP 'run-elx-windows.ps1'
+Invoke-WebRequest 'https://raw.githubusercontent.com/ElXnet/ElX-control/feat/multinode-policy/scripts/run-elx-windows.ps1' -OutFile $runner
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runner -Workspace 'C:\ElX-test'
+```
+
+This checks the **standalone** Control module. Scripts create an isolated PostgreSQL test database; they do not change a VPS.
+
+## Integration still required
+
+The database's session-fence verification is not itself proof that ElXray has drained a particular device's flows. Core-generated drain receipts, unique profile-to-device bindings, ongoing accounting scheduling, FUP delivery to every node, and automatic period rollover must be integrated and tested before paid production traffic. Current command `collect-usage` requires a pre-provisioned trusted source assignment. Never infer device identity from an IP address or a copied subscription URL.
+
+Do not merge this branch or deploy as a finished business service solely on the basis of unit tests. All local and GitHub Actions test results should be inspected first.
