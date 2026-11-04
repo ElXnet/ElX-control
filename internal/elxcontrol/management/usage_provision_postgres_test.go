@@ -110,8 +110,20 @@ func TestProvisionUsageTrustBoundaryAndSignedBaseline(t *testing.T){
 	if periodUp!=0||periodDown!=0{t.Fatalf("historical traffic charged to new period: %d/%d",periodUp,periodDown)}
 	coverage,err=store.UsageCoverage(ctx,entitlement.String(),schedule.String())
 	if err!=nil||!coverage.Ready||coverage.PrimedGrants!=1{t.Fatalf("trusted baseline not recognized: %+v %v",coverage,err)}
+	// An agent that stopped sending new signed sequences is never healthy.
+	if _,err=db.ExecContext(ctx,`UPDATE elx_accounting_streams
+		SET last_received_at=clock_timestamp()-interval '2 minutes'
+		WHERE period_id=$1`,period);err!=nil{t.Fatal(err)}
+	coverage,err=store.UsageCoverage(ctx,entitlement.String(),schedule.String())
+	if err!=nil||coverage.Ready||coverage.FreshGrants!=0 {
+		t.Fatalf("stale signed stream marked ready: %+v %v",coverage,err)
+	}
 	dup,err:=accounting.CollectCurrent(ctx,db,node,schedule,b,reader)
 	if err!=nil||!dup.Duplicate||dup.Crossed{t.Fatalf("signed replay charged twice: %+v %v",dup,err)}
+	coverage,err=store.UsageCoverage(ctx,entitlement.String(),schedule.String())
+	if err!=nil||coverage.Ready||coverage.FreshGrants!=0{
+		t.Fatalf("replayed signature renewed stale stream: %+v %v",coverage,err)
+	}
 	reader.value.Sequence=2
 	reader.value.UpBytes+=60
 	reader.value.DownBytes+=70
@@ -119,6 +131,10 @@ func TestProvisionUsageTrustBoundaryAndSignedBaseline(t *testing.T){
 	if err!=nil||!next.Crossed{t.Fatalf("signed threshold did not cross: %+v %v",next,err)}
 	if err=db.QueryRowContext(ctx,`SELECT up_bytes,down_bytes FROM elx_usage_periods WHERE id=$1`,period).Scan(&periodUp,&periodDown);err!=nil{t.Fatal(err)}
 	if periodUp!=60||periodDown!=70{t.Fatalf("increment after baseline wrong: %d/%d",periodUp,periodDown)}
+	coverage,err=store.UsageCoverage(ctx,entitlement.String(),schedule.String())
+	if err!=nil||!coverage.Ready||coverage.FreshGrants!=1{
+		t.Fatalf("new signed sequence did not restore readiness: %+v %v",coverage,err)
+	}
 	if _,err=db.ExecContext(ctx,`UPDATE elx_core_identities SET revoked=true
 		WHERE node_id=$1 AND incarnation=$2`,node,incarnation);err!=nil{t.Fatal(err)}
 	coverage,err=store.UsageCoverage(ctx,entitlement.String(),schedule.String())
