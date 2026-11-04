@@ -135,6 +135,23 @@ func lockEligibleDevice(ctx context.Context, tx *sql.Tx, req reservationRequest)
 		WHERE node_id=$1 AND state='quiescing')`,req.NodeID).Scan(&rotating)
 	if err!=nil{return 0,err}
 	if rotating{return 0,ErrDenied}
+	// A paid VLESS profile may never be admitted under another credential,
+	// another incarnation, or a suspended/pending profile. After ANY node
+	// rotation, even legacy sessions require the unique live core boot.
+	var paid,profileAllowed,wasRotated,coreAllowed bool
+	err=tx.QueryRowContext(ctx,`SELECT
+		EXISTS(SELECT 1 FROM elx_paid_profiles p WHERE p.entitlement_id=$1),
+		EXISTS(SELECT 1 FROM elx_paid_profiles p
+		  WHERE p.entitlement_id=$1 AND p.vless_id=$2 AND p.status='active'),
+		EXISTS(SELECT 1 FROM elx_core_rotations WHERE node_id=$3),
+		EXISTS(SELECT 1 FROM elx_core_identities c
+		  WHERE c.node_id=$3 AND c.incarnation=$4 AND NOT c.revoked)`,
+		req.EntitlementID,req.ProfileID,req.NodeID,req.Incarnation).
+		Scan(&paid,&profileAllowed,&wasRotated,&coreAllowed)
+	if err!=nil{return 0,err}
+	if (paid&&!profileAllowed)||((paid||wasRotated)&&!coreAllowed){
+		return 0,ErrDenied
+	}
 	var keyGeneration int64
 	var revoked bool
 	err = tx.QueryRowContext(ctx, `SELECT key_generation, revoked FROM elx_devices
