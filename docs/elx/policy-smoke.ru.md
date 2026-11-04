@@ -1,1 +1,78 @@
-IyDQodC60LLQvtC30L3QsNGPINC/0YDQvtCy0LXRgNC60LAg0L/RgNC40LzQtdC90LXQvdC40Y8g0L/QvtC70LjRgtC40LrQuCBFbFgKCtCh0YLQtdC90LQg0LfQsNC/0YPRgdC60LDQtdGCINC00LLQsCDRjdC60LfQtdC80L/Qu9GP0YDQsCBFbFhyYXkg0YEg0YDQsNC30L3Ri9C80Lgg0LrQu9GO0YfQsNC80Lgg0Lgg0L7QtNC90L7QuSDQu9C+0LPQuNGH0LXRgdC60L7QuSDQv9C+0LTQv9C40YHQutC+0LkuIENvbnRyb2wg0LTQvtGB0YLQsNCy0LvRj9C10YIg0L/QvtC70LjRgtC40LrQuCDQutCw0LbQtNC+0LzRgyDRjdC60LfQtdC80L/Qu9GP0YDRgyDQvdC10LfQsNCy0LjRgdC40LzQvi4g0JrQvtC80LDQvdC00LAg0L/RgNC+0YXQvtC00LjRgiDRh9C10YDQtdC3IFBvc3RncmVTUUwsIGdSUEMg0YEgbVRMUywgRWxYcmF5INC4INC/0L7QtNC/0LjRgdCw0L3QvdC+0LUg0L/QvtC00YLQstC10YDQttC00LXQvdC40LUuINCa0L7QvNCw0L3QtNGLINC90L7QtNCwINC30LDQsdC40YDQsNC10YIg0L/QviDQvtC00L3QvtC5INGH0LXRgNC10LcgYGFwcGx5LXBvbGljeWAuINCg0LXQstC40LfQuNGPINGP0LTRgNCwIDEg0YHQvtC+0YLQstC10YLRgdGC0LLRg9C10YIg0YDQtdCy0LjQt9C40Lgg0LbRg9GA0L3QsNC70LAgMC4g0JjQtNC10L3RgtC40YTQuNC60LDRgtC+0YAg0L7Qv9C10YDQsNGG0LjQuCDRgdC+0YXRgNCw0L3Rj9C10YLRgdGPINC/0YDQuCDQv9C+0LLRgtC+0YDQvdC+0Lkg0LTQvtGB0YLQsNCy0LrQtS4KCtCX0LDQv9GD0YHQutCw0LnRgtC1INC60L7QvNCw0L3QtNGLINC40LcgTGludXgg0LjQu9C4IFdTTC4g0JTQvtGB0YLQsNGC0L7Rh9C90L4g0L7QtNC90L7Qs9C+INC60L7QvNC/0YzRjtGC0LXRgNCwLiBHbyDQuCBPcGVuU1NMINC00L7Qu9C20L3RiyDQsdGL0YLRjCDQtNC+0YHRgtGD0L/QvdGLINCy0L3Rg9GC0YDQuCBXU0wsIERvY2tlciBEZXNrdG9wINC00L7Qu9C20LXQvSDQsdGL0YLRjCDQv9C+0LTQutC70Y7Rh9GR0L0g0Log0Y3RgtC+0LkgV1NMLdC00LjRgdGC0YDQuNCx0YPRhtC40LguINCh0LrRgNC40L/RgiDQv9GA0LjQvNC10L3Rj9C10YIg0LzQuNCz0YDQsNGG0LjRjiDQuCDQvtGB0YLQsNCy0LvRj9C10YIg0LfQsNC/0LjRgdC4INCyINC+0YLQtNC10LvRjNC90L7QuSDRgtC10YHRgtC+0LLQvtC5INCx0LDQt9C1LgoKMS4g0JLQvtC30YzQvNC40YLQtSDQstC10YLQutGDIGBmZWF0L211bHRpbm9kZS1wb2xpY3lgINCyIEVsWC1jb250cm9sINC4IGByZXN0cmljdC1ydW50aW1lLXVubGltaXRlZGAg0LIgRWxYcmF5LiDQkiDQv9GA0LjQvNC10YDQtSDRgNC10L/QvtC30LjRgtC+0YDQuNC4INC70LXQttCw0YIg0YDRj9C00L7QvC4KMi4g0KHQvtCx0LXRgNC40YLQtSDQsdC40L3QsNGA0L3QuNC60LguINCS0LXRgNGB0LjRjiBHbyDQsdC10YDQuNGC0LUg0LjQtyBgZ28ubW9kYCBFbFgtY29udHJvbC4KCiAgIGBgYGJhc2gKICAgY2QgRWxYcmF5CiAgIGdvIGJ1aWxkIC1vIC4uL2VseHJheS1sYWIgLi9tYWluCiAgIGNkIC4uL0VsWC1jb250cm9sCiAgIGdvIGJ1aWxkIC1vIC4uL2VseC1jb250cm9sLWxhYiAuL2NtZC9lbHgtY29udHJvbAogICBgYGAKCjMuINCX0LDQv9GD0YHRgtC40YLQtSDQvtGC0LTQtdC70YzQvdGD0Y4g0YLQtdGB0YLQvtCy0YPRjiDQsdCw0LfRgyDQuCDQtNC+0LbQtNC40YLQtdGB0Ywg0LPQvtGC0L7QstC90L7RgdGC0LggUG9zdGdyZVNRTC4KCiAgIGBgYGJhc2gKICAgZG9ja2VyIHJ1biAtZCAtLW5hbWUgZWx4LXRlc3QtcGcgLXAgMTI3LjAuMC4xOjU1NDMyOjU0MzIgXAogICAgIC1lIFBPU1RHUkVTX1VTRVI9ZWx4IC1lIFBPU1RHUkVTX1BBU1NXT1JEPWVseF90ZXN0IFwKICAgICAtZSBQT1NUR1JFU19EQj1lbHhfdGVzdCBwb3N0Z3JlczoxOAogICBkb2NrZXIgZXhlYyBlbHgtdGVzdC1wZyBwZ19pc3JlYWR5IC1VIGVseCAtZCBlbHhfdGVzdAogICBgYGAKCjQuINCa0L7Qs9C00LAgYHBnX2lzcmVhZHlgINC/0L7QutCw0LbQtdGCIGBhY2NlcHRpbmcgY29ubmVjdGlvbnNgLCDQt9Cw0L/Rg9GB0YLQuNGC0LUg0YLQtdGB0YIuCgogICBgYGBiYXNoCiAgIGV4cG9ydCBFTFhfQ09OVFJPTF9QT1NUR1JFU19EU049J2hvc3Q9MTI3LjAuMC4xIHBvcnQ9NTU0MzIgdXNlcj1lbHggZGJuYW1lPWVseF90ZXN0IHBhc3N3b3JkPWVseF90ZXN0IHNzbG1vZGU9ZGlzYWJsZScKICAgZXhwb3J0IEVMWFJBWV9CSU49IiQocmVhbHBhdGggLi4vZWx4cmF5LWxhYikiCiAgIGV4cG9ydCBFTFhfQ09OVFJPTF9CSU49IiQocmVhbHBhdGggLi4vZWx4LWNvbnRyb2wtbGFiKSIKICAgYmFzaCBzY3JpcHRzL2VseC1wb2xpY3ktc21va2Uuc2gKICAgYGBgCgo1LiDQntC20LjQtNCw0LXQvNGL0Lkg0LLRi9Cy0L7QtDogYFBBU1M6IG1UTFMsIHR3byBub2Rlcywgd3JvbmctY29yZSByZWplY3Rpb24sIGR1cmFibGUgcmVzdGFydCBhbmQgcmVwbGF5YC4g0J/RgNC4INGB0LHQvtC1INC/0YDQuNGI0LvQuNGC0LUg0LLRi9Cy0L7QtCDRgdC60YDQuNC/0YLQsCDQuCDQstC10YDRgdC40Lgg0LHQuNC90LDRgNC90LjQutC+0LIuINCd0LUg0L/RgNC40YHRi9C70LDQudGC0LUg0LrQu9GO0YfQuCwg0YHQtdGA0YLQuNGE0LjQutCw0YLQvdGL0LUgc2VlZCDQuNC70LggRFNOINGBINC/0LDRgNC+0LvQtdC8LiDQldGB0LvQuCDQv9C+0YDRgtGLINC30LDQvdGP0YLRiywg0LfQsNC00LDQudGC0LUgYEVMWF9TTU9LRV9DT05UUk9MX1BPUlRgIGBFTFhfU01PS0VfQ09SRV9QT1JUYCDQuCBgRUxYX1NNT0tFX1NFQ09ORF9QT1JUYC4g0J/QvtGB0LvQtSDQv9GA0L7QstC10YDQutC4INGC0LXRgdGC0L7QstGL0Lkg0LrQvtC90YLQtdC50L3QtdGAINC80L7QttC90L4g0L7RgdGC0LDQvdC+0LLQuNGC0Ywg0LrQvtC80LDQvdC00L7QuSBgZG9ja2VyIHN0b3AgZWx4LXRlc3QtcGdgLgoK0KHQutGA0LjQv9GCINGB0L7Qt9C00LDRkdGCINCy0YDQtdC80LXQvdC90YvQuSDQutCw0YLQsNC70L7QsyDRgSDQt9Cw0LrRgNGL0YLRi9C80Lgg0L/RgNCw0LLQsNC80LguINCSINC90ZHQvCDQvtGB0YLQsNGO0YLRgdGPINC60L7QvdGE0LjQs9GD0YDQsNGG0LjRjywg0LrQu9GO0YfQuCDRgdGC0LXQvdC00LAg0Lgg0LbRg9GA0L3QsNC70YsuINCa0LDRgtCw0LvQvtCzINC80L7QttC90L4g0YPQtNCw0LvQuNGC0Ywg0L/QvtGB0LvQtSDQv9GA0L7QstC10YDQutC4LgoK0JIg0L/QvtGB0YLQvtGP0L3QvdC+0Lwg0L7QutGA0YPQttC10L3QuNC4INC90LDRgdGC0YDQvtC50YLQtSDQvtGC0LTQtdC70YzQvdGL0LkgQ0Eg0L3QvtC0INC4INCy0YvQtNCw0LnRgtC1INC60LDQttC00L7QuSDQvdC+0LTQtSDQutC70LjQtdC90YLRgdC60LjQuSDRgdC10YDRgtC40YTQuNC60LDRgiDRgSBVUkkgU0FOIGBzcGlmZmU6Ly9lbHhuZXQvbm9kZS88dXVpZD5gLiBDb250cm9sINGH0LjRgtCw0LXRgiDRgdC/0LjRgdC+0Log0L/RgNC40LLRj9C30L7QuiDQuNC3IEpTT04t0YTQsNC50LvQsCBgRUxYX1BPTElDWV9CSU5ESU5HYC4g0J3QsCDQvtC00L3QvtC5INC90L7QtNC1INC70L7QutCw0LvRjNC90LDRjyDQv9C+0LTQv9C40YHQutCwINGB0L7QvtGC0LLQtdGC0YHRgtCy0YPQtdGCINC+0LTQvdC+0LzRgyDRgNC10YHRg9GA0YHRgyDQttGD0YDQvdCw0LvQsC4g0J3QvtC00Ysg0LjRgdC/0L7Qu9GM0LfRg9GO0YIg0YDQsNC30L3Ri9C1INC/0YPQsdC70LjRh9C90YvQtSDQutC70Y7Rh9C4IEVsWHJheS4g0J/RgNC4INC90LXRgdC60L7Qu9GM0LrQuNGFINC/0YDQuNCy0Y/Qt9C60LDRhSBgZW5xdWV1ZS1wb2xpY3lgINGC0YDQtdCx0YPQtdGCIGAtbm9kZWAg0LggYC1yZXNvdXJjZWAuINCf0YDQuNCy0LDRgtC90YvQuSBzZWVkINC4INC80LDQvdC40YTQtdGB0YIg0YHQvtGB0YLQvtGP0L3QuNGPINC/0YDQuNC90LDQtNC70LXQttCw0YIg0L/RgNC+0YbQtdGB0YHRgyDRj9C00YDQsC4g0KXRgNCw0L3QuNC70LjRidC1INGA0LDRgdC/0L7Qu9Cw0LPQsNC10YLRgdGPINC90LAg0LvQvtC60LDQu9GM0L3QvtC5INGE0LDQudC70L7QstC+0Lkg0YHQuNGB0YLQtdC80LUsINCwINC/0YDQvtGG0LXRgdGBINC30LDQv9GD0YHQutCw0LXRgtGB0Y8g0YEgYEVMWFJBWV9QT0xJQ1lfU1RBVEVgLiDQodGC0LXQvdC0INC40YHQv9C+0LvRjNC30YPQtdGCIFRDUCBsb29wYmFjay4g0JTQu9GPINC70L7QutCw0LvRjNC90L7Qs9C+INCw0LPQtdC90YLQsCDQvdCwINGF0L7RgdGC0LUg0L/RgNC10LTRg9GB0LzQvtGC0YDQtdC9IGBFTFhSQVlfUE9MSUNZX1NPQ0tFVGAg0YEg0L7Qs9GA0LDQvdC40YfQtdC90LjQtdC8INC00L7RgdGC0YPQv9CwINC/0YDQsNCy0LDQvNC4INCe0KEuCgrQn9C+0LTQv9C40YHRjCDQv9C+0LTRgtCy0LXRgNC20LTQsNC10YIg0YHQvtGF0YDQsNC90ZHQvdC90YPRjiDQutC+0L3RhNC40LPRg9GA0LDRhtC40Y4g0LrQvtC90LrRgNC10YLQvdC+0Lkg0L/QvtC00L/QuNGB0LrQuCDQuCDQv9GA0LjQstGP0LfQsNC90LAg0Log0L3QvtC00LUsINGA0LXRgdGD0YDRgdGDLCDQvtC/0LXRgNCw0YbQuNC4INC4INGN0L/QvtGF0LUuINCe0L3QsCDQvdC1INC/0L7QtNGC0LLQtdGA0LbQtNCw0LXRgiDQt9Cw0LrRgNGL0YLQuNC1INC/0L7RgtC+0LrQvtCyLCDQsdC10LfQvtC/0LDRgdC90L7QtSDQv9C10YDQtdGA0LDRgdC/0YDQtdC00LXQu9C10L3QuNC1INCx0Y7QtNC20LXRgtCwINC40LvQuCDQt9Cw0YnQuNGC0YMg0L7RgiDQstC+0YHRgdGC0LDQvdC+0LLQu9C10L3QuNGPINGD0YHRgtCw0YDQtdCy0YjQtdC5INC60L7Qv9C40Lgg0LTQuNGB0LrQsC4g0JTQu9GPINGN0YLQuNGFINGB0YbQtdC90LDRgNC40LXQsiDQv9C+0YLRgNC10LHRg9GO0YLRgdGPINC+0YLQtNC10LvRjNC90YvQtSDQutC+0L3RgtGA0LDQutGC0Ysg0Lgg0L/RgNC+0LLQtdGA0LrQuC4g0J/RgNC4INGB0LzQtdC90LUg0L/RgNC40LLRj9C30LrQuCDQu9C40LHQviDQstC+0YHRgdGC0LDQvdC+0LLQu9C10L3QuNC4INGB0L3QuNC80LrQsCDRg9C/0YDQsNCy0LvRj9GO0YnQuNC5INC60L7QvdGC0YPRgCDRgdC70LXQtNGD0LXRgiDQvtGB0YLQsNC90L7QstC40YLRjCDQtNC+INGB0LLQtdGA0LrQuCDRgdC+0YHRgtC+0Y/QvdC40Y8uCg==
+# Сквозная проверка применения политики ElX
+
+## Запуск на Windows (PowerShell + WSL)
+
+Не нужен VPS. Требуются Git for Windows, работающая Ubuntu в WSL, Go по `go.mod` (на момент добавления запуска — 1.27.3, `GOTOOLCHAIN=auto`), `gcc`, `python3`, `openssl`, а также Docker Desktop с включённой интеграцией в WSL. Команды ниже запускаются в **PowerShell на Windows**:
+
+```powershell
+$runner = Join-Path $env:TEMP "run-elx-windows.ps1"
+Invoke-WebRequest "https://raw.githubusercontent.com/ElXnet/ElX-ui/elx-control-journal/scripts/run-elx-windows.ps1" -OutFile $runner
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runner -Workspace "C:\ElX-test"
+```
+
+Скрипт клонирует или безопасно обновляет три рабочие ветки, откажется работать при незакоммиченных изменениях и запустит полную локальную проверку из `ElX-ui` через WSL. Код Control для этой проверки пока берётся из `ElX-control/internal/elxcontrol`; отдельный `ElX-control` скачивается для сравнения, но не подменяет проверяемый модуль. При неудаче сохраните текст консоли и путь с тестовыми логами, напечатанный скриптом. Секреты/DSN не присылайте.
+
+## Подписанные подтверждения закрытия сессии
+
+Миграция `007_core_identities.sql` вводит доверенную привязку `(node_id, incarnation) → Ed25519 public_key`. Перед разрешением переноса занятого слота оператор управляющего контура должен зарегистрировать ключ, полученный по **проверенному** каналу идентификации конкретного ElXray. Ключ из тела клиентского запроса, сообщения о закрытии или произвольного сертификата без сверки привязки не подходит.
+
+`session.ReleaseAfterFence` отклоняет незарегистрированные, отозванные и несовпадающие ключи, даже если предъявленная подпись сама по себе корректна. Старые слоты остаются занятыми до достоверного подтверждения закрытия, при потере связи применяется fail-closed. Оперативная автоматическая регистрация, ротация и подпись самого fence на уровне ElXray ещё требуют интеграции; нельзя считать имеющуюся проверку полноценным end-to-end завершением сессии.
+
+
+## Один запуск из WSL
+
+В Linux или WSL установите Go версии из `go.mod`, C-компилятор для `-race`, OpenSSL и Python 3. Если своей тестовой БД нет, запустите Docker Desktop с интеграцией WSL. В каталоге для тестов выполните:
+
+```bash
+git clone --branch restrict-runtime-unlimited https://github.com/ElXnet/ElXray.git
+git clone --branch feat/multinode-policy https://github.com/ElXnet/ElX-control.git
+cd ElX-control
+set -o pipefail
+bash scripts/elx-test-local.sh 2>&1 | tee elx-test.log
+```
+
+Если репозитории уже скачаны, обновите указанные ветки через `git pull --ff-only`. Сценарий печатает коммиты, собирает оба бинарника, запускает Go-тесты с PostgreSQL и `-race`, проверяет доставку на две ноды и отключение открытого VLESS/TCP-соединения. На успехе выводит `PASS: ElX local suite`. При сбое приложите `elx-test.log`.
+
+По умолчанию сценарий поднимает временный контейнер PostgreSQL и удаляет его после прогона. Для существующей **тестовой** базы задайте `ELX_CONTROL_POSTGRES_DSN`. Для ElXray из другого каталога задайте `ELXRAY_SOURCE`. Сквозная проверка VLESS использует локальный echo-сервер. Она проверяет отключение подписки целиком. Проверки идентификации устройства в реальном VPN-потоке и передачи слота между нодами добавляются вместе с этим контуром.
+
+## Ручной запуск проверки доставки
+
+Стенд запускает два экземпляра ElXray с разными ключами и одной логической подпиской. Control доставляет политики каждому экземпляру независимо. Команда проходит через PostgreSQL, gRPC с mTLS, ElXray и подписанное подтверждение. Команды нода забирает по одной через `apply-policy`. Ревизия ядра 1 соответствует ревизии журнала 0. Идентификатор операции сохраняется при повторной доставке.
+
+Запускайте команды из Linux или WSL. Достаточно одного компьютера. Go и OpenSSL должны быть доступны внутри WSL, Docker Desktop должен быть подключён к этой WSL-дистрибуции. Скрипт применяет миграцию и оставляет записи в отдельной тестовой базе.
+
+1. Возьмите ветку `feat/multinode-policy` в ElX-control и `restrict-runtime-unlimited` в ElXray. В примере репозитории лежат рядом.
+2. Соберите бинарники. Версию Go берите из `go.mod` ElX-ui.
+
+   ```bash
+   cd ElXray
+   go build -o ../elxray-lab ./main
+   cd ../ElX-ui
+   go build -o ../elx-control-lab ./cmd/elx-control
+   ```
+
+3. Запустите отдельную тестовую базу и дождитесь готовности PostgreSQL.
+
+   ```bash
+   docker run -d --name elx-test-pg -p 127.0.0.1:55432:5432 \
+     -e POSTGRES_USER=elx -e POSTGRES_PASSWORD=elx_test \
+     -e POSTGRES_DB=elx_test postgres:18
+   docker exec elx-test-pg pg_isready -U elx -d elx_test
+   ```
+
+4. Когда `pg_isready` покажет `accepting connections`, запустите тест.
+
+   ```bash
+   export ELX_CONTROL_POSTGRES_DSN='host=127.0.0.1 port=55432 user=elx dbname=elx_test password=elx_test sslmode=disable'
+   export ELXRAY_BIN="$(realpath ../elxray-lab)"
+   export ELX_CONTROL_BIN="$(realpath ../elx-control-lab)"
+   bash scripts/elx-policy-smoke.sh
+   ```
+
+5. Ожидаемый вывод: `PASS: mTLS, two nodes, wrong-core rejection, durable restart and replay`. При сбое пришлите вывод скрипта и версии бинарников. Не присылайте ключи, сертификатные seed или DSN с паролем. Если порты заняты, задайте `ELX_SMOKE_CONTROL_PORT` `ELX_SMOKE_CORE_PORT` и `ELX_SMOKE_SECOND_PORT`. После проверки тестовый контейнер можно остановить командой `docker stop elx-test-pg`.
+
+Скрипт создаёт временный каталог с закрытыми правами. В нём остаются конфигурация, ключи стенда и журналы. Каталог можно удалить после проверки.
+
+В постоянном окружении настройте отдельный CA нод и выдайте каждой ноде клиентский сертификат с URI SAN `spiffe://elxnet/node/<uuid>`. Control читает список привязок из JSON-файла `ELX_POLICY_BINDING`. На одной ноде локальная подписка соответствует одному ресурсу журнала. Ноды используют разные публичные ключи ElXray. При нескольких привязках `enqueue-policy` требует `-node` и `-resource`. Приватный seed и манифест состояния принадлежат процессу ядра. Хранилище располагается на локальной файловой системе, а процесс запускается с `ELXRAY_POLICY_STATE`. Стенд использует TCP loopback. Для локального агента на хосте предусмотрен `ELXRAY_POLICY_SOCKET` с ограничением доступа правами ОС.
+
+Подпись подтверждает сохранённую конфигурацию конкретной подписки и привязана к ноде, ресурсу, операции и эпохе. Она не подтверждает закрытие потоков, безопасное перераспределение бюджета или защиту от восстановления устаревшей копии диска. Для этих сценариев потребуются отдельные контракты и проверки. При смене привязки либо восстановлении снимка управляющий контур следует остановить до сверки состояния.
