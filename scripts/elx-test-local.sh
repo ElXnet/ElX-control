@@ -45,7 +45,7 @@ if [[ -z "${ELX_CONTROL_POSTGRES_DSN:-}" ]]; then
 fi
 export ELX_TEST_POSTGRES_DSN="$ELX_CONTROL_POSTGRES_DSN"
 
-echo "ElX-ui revision: $(git -C "$root" rev-parse --short HEAD)"
+echo "ElX-control revision: $(git -C "$root" rev-parse --short HEAD)"
 echo "ElXray revision: $(git -C "$core" rev-parse --short HEAD)"
 export ELXRAY_BIN="$work/elxray" ELX_CONTROL_BIN="$work/elx-control"
 export TMPDIR="$work"
