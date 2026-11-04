@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/accounting"
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/journal"
+	"github.com/ElXnet/ElX-control/internal/elxcontrol/policytransport"
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/fencetransport"
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/session"
 	"google.golang.org/grpc"
@@ -172,6 +174,21 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 		binding.NodeID,binding.ExecutorID,binding.Incarnation,binding.AccountingID,1,period,sub)
 	if err != nil { t.Fatal(err) }
 
+	// Leasing requires a trusted, active rate-grant assignment.
+	leaseResource:=uuid.New()
+	_,err=db.ExecContext(ctx,`INSERT INTO elx_operation_targets(node_id,resource_id)
+		VALUES($1,$2)`,binding.NodeID,leaseResource)
+	if err!=nil {t.Fatal(err)}
+	_,err=db.ExecContext(ctx,`INSERT INTO elx_rate_grants
+		(entitlement_id,node_id,resource_id,committed_up,committed_down,epoch,barrier_public_key)
+		VALUES($1,$2,$3,100,100,1,$4)`,entitlement,binding.NodeID,leaseResource,[]byte(pub))
+	if err!=nil {t.Fatal(err)}
+	leasePub,leasePrivate,err:=ed25519.GenerateKey(rand.Reader)
+	if err!=nil {t.Fatal(err)}
+	seedPath:=filepath.Join(t.TempDir(),"lease-seed")
+	if err:=os.WriteFile(seedPath,[]byte(hex.EncodeToString(leasePrivate.Seed())),0600);err!=nil {t.Fatal(err)}
+	t.Setenv("ELX_CONTROL_LEASE_SEED_FILE",seedPath)
+
 	roots,serverCert,clientCert,foreignCert:=testCerts(t,binding.NodeID,uuid.New())
 	lis,err:=net.Listen("tcp","127.0.0.1:0")
 	if err != nil { t.Fatal(err) }
@@ -181,6 +198,10 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 	})))
 	if err := Register(srv,db); err != nil { t.Fatal(err) }
 	if err := fencetransport.Register(srv,db); err != nil { t.Fatal(err) }
+	if err:=policytransport.Register(srv,db,policytransport.Binding{
+		Target:journal.Target{NodeID:binding.NodeID.String(),ResourceID:leaseResource.String()},
+		Subscription:sub,Epoch:1,PublicKey:pub,
+	});err!=nil {t.Fatal(err)}
 	go srv.Serve(lis)
 	t.Cleanup(func(){srv.Stop();lis.Close()})
 	dial:=func(cert tls.Certificate)*grpc.ClientConn{
@@ -192,6 +213,37 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 		return conn
 	}
 	good,foreign:=dial(clientCert),dial(foreignCert)
+	leaseInput,err:=json.Marshal(policytransport.LeaseRequest{
+		ResourceID:leaseResource.String(),Subscription:sub,
+	})
+	if err!=nil {t.Fatal(err)}
+	var leaseWire wrapperspb.BytesValue
+	leaseRoute:="/elx.node.v1.PolicyDelivery/Lease"
+	if err:=foreign.Invoke(ctx,leaseRoute,wrapperspb.Bytes(leaseInput),&leaseWire);
+		status.Code(err)!=codes.PermissionDenied {
+		t.Fatalf("foreign mTLS certificate received Control lease: %v",err)
+	}
+	if err:=good.Invoke(ctx,leaseRoute,wrapperspb.Bytes(leaseInput),&leaseWire);err!=nil {
+		t.Fatalf("eligible node did not get a signed Control lease: %v",err)
+	}
+	var lease policytransport.Lease
+	if err:=json.Unmarshal(leaseWire.Value,&lease);err!=nil {t.Fatal(err)}
+	if lease.NodeID!=binding.NodeID || lease.Subscription!=sub ||
+		lease.NotAfter-lease.NotBefore!=15 || !ed25519.Verify(leasePub,
+			fmt.Appendf(nil,"elx-control-lease-v1\\n%s\\n%s\\n%d\\n%d\\n%d",
+				lease.NodeID,lease.Subscription,lease.Sequence,lease.NotBefore,lease.NotAfter),
+			lease.Signature) {
+		t.Fatalf("Control lease ticket is not node-bound or signature invalid: %+v",lease)
+	}
+	_,err=db.ExecContext(ctx,`UPDATE elx_entitlements SET enabled=false WHERE id=$1`,entitlement)
+	if err!=nil {t.Fatal(err)}
+	if err:=good.Invoke(ctx,leaseRoute,wrapperspb.Bytes(leaseInput),&leaseWire);
+		status.Code(err)!=codes.FailedPrecondition {
+		t.Fatalf("disabled entitlement obtained lease: %v",err)
+	}
+	_,err=db.ExecContext(ctx,`UPDATE elx_entitlements SET enabled=true WHERE id=$1`,entitlement)
+	if err!=nil {t.Fatal(err)}
+
 	goodCore:=&proofCore{key:key,incarnation:binding.Incarnation}
 	badCoreKeyPub,badCoreKey,err:=ed25519.GenerateKey(rand.Reader)
 	_ = badCoreKeyPub
