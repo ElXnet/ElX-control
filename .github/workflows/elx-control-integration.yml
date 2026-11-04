@@ -1,0 +1,70 @@
+name: ElX Control integration
+
+on:
+  push:
+    branches: [feat/multinode-policy]
+    paths:
+      - "cmd/elx-control/**"
+      - "internal/elxcontrol/**"
+      - "scripts/elx-*.sh"
+      - "scripts/elx-*.py"
+      - "scripts/run-elx-windows.ps1"
+      - ".github/workflows/elx-control-integration.yml"
+      - "go.mod"
+      - "go.sum"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: elx
+          POSTGRES_PASSWORD: elx_ci_only
+          POSTGRES_DB: elx_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U elx -d elx_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Checkout ElX-control integration branch
+        uses: actions/checkout@v4
+        with:
+          path: ElX-control
+
+      - name: Checkout ElXray integration branch
+        uses: actions/checkout@v4
+        with:
+          repository: ElXnet/ElXray
+          ref: restrict-runtime-unlimited
+          path: ElXray
+
+      - name: Setup Go toolchain
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ElX-control/go.mod
+          cache: false
+
+      - name: Check tooling and revisions
+        run: |
+          go version
+          python3 --version
+          gcc --version | head -1
+          git -C ElX-control rev-parse HEAD
+          git -C ElXray rev-parse HEAD
+
+      - name: Run race, PostgreSQL, policy and VLESS integration suite
+        working-directory: ElX-control
+        env:
+          ELX_CONTROL_POSTGRES_DSN: "host=127.0.0.1 port=5432 user=elx dbname=elx_test password=elx_ci_only sslmode=disable"
+        run: bash scripts/elx-test-local.sh
