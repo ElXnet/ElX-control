@@ -41,6 +41,19 @@ foreach ($name in $branches.Keys) {
         Invoke-Git -Arguments @('-C', $dir, 'pull', '--ff-only', 'origin', $branch)
     }
 }
+# Normalize existing Windows checkouts too: adding .gitattributes does not
+# automatically rewrite shell scripts already checked out with CRLF endings.
+# The repository's .gitattributes guarantees that LF remains clean to Git.
+$controlScripts = Join-Path (Join-Path $Workspace 'ElX-control') 'scripts'
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+Get-ChildItem -LiteralPath $controlScripts -Filter '*.sh' -File | ForEach-Object {
+    $body = [System.IO.File]::ReadAllText($_.FullName)
+    if ($body.Contains("`r")) {
+        $normalized = $body.Replace("`r`n", "`n").Replace("`r", "`n")
+        [System.IO.File]::WriteAllText($_.FullName, $normalized, $utf8NoBom)
+        Write-Host "Normalized LF: $($_.Name)" -ForegroundColor DarkCyan
+    }
+}
 # Docker Desktop can become the default WSL distribution; it has no bash or build tools.
 # Select a regular Linux distribution, or pass -Distro explicitly.
 if (-not $Distro) {
