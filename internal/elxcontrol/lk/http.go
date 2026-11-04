@@ -168,6 +168,30 @@ func Handler(s Store)http.Handler{
   if err!=nil{failure(w,err);return}
   reply(w,http.StatusOK,map[string]any{"items":items})
  })
+ mux.HandleFunc("GET /lk/v1/entitlements/{id}/profile",func(w http.ResponseWriter,r *http.Request){
+  account,ok:=s.requireAccount(w,r,false)
+  if !ok{return}
+  id:=r.PathValue("id")
+  if !s.requireOwnership(w,r,account,id){return}
+  var profile struct{
+   Status string `json:"status"`
+   SubscriptionID string `json:"subscriptionId,omitempty"`
+   ExpiresAt time.Time `json:"expiresAt"`
+  }
+  err:=s.DB.QueryRowContext(r.Context(),`SELECT p.status,
+    CASE WHEN p.status='active' THEN p.subscription_id ELSE '' END,
+    e.valid_until FROM elx_paid_profiles p
+    JOIN elx_entitlements e ON e.id=p.entitlement_id
+    WHERE e.id=$1`,id).Scan(&profile.Status,&profile.SubscriptionID,&profile.ExpiresAt)
+  if errors.Is(err,sql.ErrNoRows){
+   reply(w,404,ErrorResponse{Error:"Not Found"});return
+  }
+  if err!=nil{failure(w,err);return}
+  if profile.Status=="active"&&!profile.ExpiresAt.After(time.Now()){
+   profile.SubscriptionID="";profile.Status="suspended"
+  }
+  reply(w,200,profile)
+ })
  mux.HandleFunc("GET /lk/v1/entitlements/{id}",func(w http.ResponseWriter,r *http.Request){
   account,ok:=s.requireAccount(w,r,false)
   if !ok{return}
