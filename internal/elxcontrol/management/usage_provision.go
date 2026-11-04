@@ -119,7 +119,7 @@ func (s SQLStore) ProvisionUsageStream(ctx context.Context, entitlement string, 
 	var storedResource sql.NullString
 	err=tx.QueryRowContext(ctx,`SELECT subscription_id,resource_id::text FROM elx_accounting_assignments
 		WHERE node_id=$1 AND executor_id=$2 AND incarnation=$3
-		AND accounting_id=$4 AND generation=$5 AND period_id=$6 FOR UPDATE`,key...).
+		AND accounting_id=$4 AND generation=$5 AND period_id=$6 AND active FOR UPDATE`,key...).
 		Scan(&storedSub,&storedResource)
 	if err==nil {
 		if storedSub!=req.SubscriptionID || !storedResource.Valid || storedResource.String!=req.ResourceID {
@@ -145,7 +145,7 @@ func (s SQLStore) ProvisionUsageStream(ctx context.Context, entitlement string, 
 	// streams or charging the same rate grant through two subscriptions.
 	err=tx.QueryRowContext(ctx,`SELECT EXISTS(
 		SELECT 1 FROM elx_accounting_assignments WHERE period_id=$1 AND node_id=$2
-		AND (subscription_id=$3 OR resource_id=$4))`,
+		AND active AND (subscription_id=$3 OR resource_id=$4))`,
 		period,b.NodeID,req.SubscriptionID,out.ResourceID).Scan(&occupied)
 	if err!=nil{return UsageProvisioned{},err}
 	if occupied{return UsageProvisioned{},journal.ErrConflict}
@@ -191,7 +191,7 @@ func (s SQLStore) UsageCoverage(ctx context.Context,entitlement,schedule string)
 			WHERE g.entitlement_id=$1 AND g.committed_up>0 AND g.committed_down>0),
 		(SELECT count(*) FROM elx_accounting_assignments a
 			JOIN elx_rate_grants g ON g.node_id=a.node_id AND g.resource_id=a.resource_id
-			WHERE a.period_id=$2 AND g.entitlement_id=$1
+			WHERE a.period_id=$2 AND a.active AND g.entitlement_id=$1
 			AND g.committed_up>0 AND g.committed_down>0),
 		(SELECT count(*) FROM elx_accounting_assignments a
 			JOIN elx_rate_grants g ON g.node_id=a.node_id AND g.resource_id=a.resource_id
@@ -200,7 +200,7 @@ func (s SQLStore) UsageCoverage(ctx context.Context,entitlement,schedule string)
 			AND st.accounting_id=a.accounting_id AND st.generation=a.generation
 			AND st.period_id=a.period_id
 			JOIN elx_core_identities c ON c.node_id=a.node_id AND c.incarnation=a.incarnation
-			WHERE a.period_id=$2 AND g.entitlement_id=$1
+			WHERE a.period_id=$2 AND a.active AND g.entitlement_id=$1
 			AND g.committed_up>0 AND g.committed_down>0
 			AND st.primed AND NOT st.closed AND NOT c.revoked),
 		(SELECT count(*) FROM elx_accounting_assignments a
@@ -210,7 +210,7 @@ func (s SQLStore) UsageCoverage(ctx context.Context,entitlement,schedule string)
 			AND st.accounting_id=a.accounting_id AND st.generation=a.generation
 			AND st.period_id=a.period_id
 			JOIN elx_core_identities c ON c.node_id=a.node_id AND c.incarnation=a.incarnation
-			WHERE a.period_id=$2 AND g.entitlement_id=$1
+			WHERE a.period_id=$2 AND a.active AND g.entitlement_id=$1
 			AND g.committed_up>0 AND g.committed_down>0
 			AND st.primed AND NOT st.closed AND NOT c.revoked
 			AND st.last_received_at>=clock_timestamp()-interval '30 seconds')`,
