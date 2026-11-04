@@ -67,7 +67,7 @@ func remoteSubscription(ctx context.Context, tx *sql.Tx, b RemoteBinding, period
 	err := tx.QueryRowContext(ctx, `SELECT a.subscription_id,c.public_key
 		FROM elx_accounting_assignments a
 		JOIN elx_core_identities c ON c.node_id=a.node_id AND c.incarnation=a.incarnation
-		WHERE a.node_id=$1 AND a.executor_id=$2 AND a.incarnation=$3
+		WHERE a.node_id=$1 AND a.executor_id=$2 AND a.incarnation=$3 AND a.active
 		AND a.accounting_id=$4 AND a.generation=$5 AND a.period_id=$6
 		AND c.revoked=false FOR SHARE OF a,c`,
 		b.NodeID, b.ExecutorID, b.Incarnation, b.AccountingID, b.Generation, period).
