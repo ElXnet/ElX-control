@@ -84,9 +84,9 @@ func ingestSample(ctx context.Context, tx *sql.Tx, s Sample) (Receipt, error) {
 	key := []any{s.NodeID, s.ExecutorID, s.Incarnation, s.AccountingID, s.Generation, s.PeriodID}
 	const where = `node_id=$1 AND executor_id=$2 AND incarnation=$3 AND accounting_id=$4 AND generation=$5 AND period_id=$6`
 	var seq, up, down int64
-	var closed bool
-	err = tx.QueryRowContext(ctx, `SELECT sequence,up_bytes,down_bytes,closed FROM elx_accounting_streams
-		WHERE `+where+` FOR UPDATE`, key...).Scan(&seq, &up, &down, &closed)
+	var closed, primed bool
+	err = tx.QueryRowContext(ctx, `SELECT sequence,up_bytes,down_bytes,closed,primed FROM elx_accounting_streams
+		WHERE `+where+` FOR UPDATE`, key...).Scan(&seq, &up, &down, &closed, &primed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Receipt{}, ErrStream
 	}
@@ -108,6 +108,28 @@ func ingestSample(ctx context.Context, tx *sql.Tx, s Sample) (Receipt, error) {
 	}
 	if s.UpBytes < up || s.DownBytes < down {
 		return Receipt{}, ErrRegression
+	}
+
+	// The first signed cumulative readback after provisioning is an anchor,
+	// not traffic generated during this FUP period. Do not charge historical
+	// bytes accumulated since the ElXray incarnation began. A subsequent poll
+	// charges only the positive delta. The entire transition is atomic and
+	// idempotent under the stream row lock.
+	if !primed {
+		var inWindow bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
+			SELECT 1 FROM elx_usage_periods WHERE id=$1
+			AND $2>=starts_at AND $2<=ends_at)`, s.PeriodID, s.SampledAt).Scan(&inWindow); err != nil {
+			return Receipt{}, err
+		}
+		if !inWindow {
+			return Receipt{}, ErrSample
+		}
+		_, err := tx.ExecContext(ctx, `UPDATE elx_accounting_streams
+			SET sequence=$7,up_bytes=$8,down_bytes=$9,primed=true WHERE `+where,
+			append(key, s.Sequence, s.UpBytes, s.DownBytes)...)
+		if err != nil { return Receipt{}, err }
+		return Receipt{Sequence: s.Sequence}, nil
 	}
 
 	var periodUp, periodDown, threshold, reducedUp, reducedDown int64
