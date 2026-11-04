@@ -1,6 +1,7 @@
 package management
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -23,6 +24,10 @@ type UsageProvision struct {
 	AccountingID   string
 	Generation     int64
 	SubscriptionID string
+	// Populated only by trusted-manifest provisioning. Manual operator
+	// provisioning remains available for legacy streams and local labs.
+	ExpectedEpoch int64
+	ExpectedPublicKey []byte
 }
 
 type UsageProvisioned struct {
@@ -85,19 +90,29 @@ func (s SQLStore) ProvisionUsageStream(ctx context.Context, entitlement string, 
 	if err!=nil{return UsageProvisioned{},err}
 	out.PeriodID=period
 
-	var up,down int64
-	err=tx.QueryRowContext(ctx,`SELECT committed_up,committed_down FROM elx_rate_grants
+	var up,down,epoch int64
+	var grantKey []byte
+	err=tx.QueryRowContext(ctx,`SELECT committed_up,committed_down,epoch,barrier_public_key
+		FROM elx_rate_grants
 		WHERE entitlement_id=$1 AND node_id=$2 AND resource_id=$3 FOR SHARE`,
-		entitlement,b.NodeID,out.ResourceID).Scan(&up,&down)
+		entitlement,b.NodeID,out.ResourceID).Scan(&up,&down,&epoch,&grantKey)
 	if errors.Is(err,sql.ErrNoRows){return UsageProvisioned{},journal.ErrConflict}
 	if err!=nil{return UsageProvisioned{},err}
 	if up<=0 || down<=0 {return UsageProvisioned{},journal.ErrConflict}
+	if req.ExpectedEpoch!=0 && (req.ExpectedEpoch!=epoch ||
+		!bytes.Equal(req.ExpectedPublicKey,grantKey)) {
+		return UsageProvisioned{},journal.ErrConflict
+	}
 
 	var revoked bool
-	err=tx.QueryRowContext(ctx,`SELECT revoked FROM elx_core_identities
-		WHERE node_id=$1 AND incarnation=$2 FOR SHARE`,b.NodeID,b.Incarnation).Scan(&revoked)
-	if errors.Is(err,sql.ErrNoRows)||revoked{return UsageProvisioned{},journal.ErrConflict}
+	var coreKey []byte
+	err=tx.QueryRowContext(ctx,`SELECT revoked,public_key FROM elx_core_identities
+		WHERE node_id=$1 AND incarnation=$2 FOR SHARE`,b.NodeID,b.Incarnation).Scan(&revoked,&coreKey)
+	if errors.Is(err,sql.ErrNoRows){return UsageProvisioned{},journal.ErrConflict}
 	if err!=nil{return UsageProvisioned{},err}
+	if revoked || (req.ExpectedEpoch!=0 && !bytes.Equal(coreKey,req.ExpectedPublicKey)){
+		return UsageProvisioned{},journal.ErrConflict
+	}
 
 	key:=[]any{b.NodeID,b.ExecutorID,b.Incarnation,b.AccountingID,b.Generation,period}
 	var storedSub string
