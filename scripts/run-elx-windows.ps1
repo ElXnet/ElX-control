@@ -5,11 +5,12 @@
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File .\scripts\run-elx-windows.ps1
 .EXAMPLE
-  powershell -ExecutionPolicy Bypass -File .\scripts\run-elx-windows.ps1 -Workspace D:\ElX-test
+  powershell -ExecutionPolicy Bypass -File .\scripts\run-elx-windows.ps1 -Workspace D:\ElX-test -Distro Ubuntu
 #>
 [CmdletBinding()]
 param(
-    [string]$Workspace = (Join-Path $env:USERPROFILE 'ElX-test')
+    [string]$Workspace = (Join-Path $env:USERPROFILE 'ElX-test'),
+    [string]$Distro = ''
 )
 $ErrorActionPreference = 'Stop'
 $branches = [ordered]@{
@@ -40,14 +41,30 @@ foreach ($name in $branches.Keys) {
         Invoke-Git -Arguments @('-C', $dir, 'pull', '--ff-only', 'origin', $branch)
     }
 }
-$control = Join-Path $Workspace 'ElX-control'
-$linuxControl = (& wsl.exe wslpath -a -u $control).Trim()
-if ($LASTEXITCODE -ne 0 -or -not $linuxControl.StartsWith('/')) {
-    throw 'Could not translate Windows workspace path to WSL. Check your WSL installation.'
+# Docker Desktop can become the default WSL distribution; it has no bash or build tools.
+# Select a regular Linux distribution, or pass -Distro explicitly.
+if (-not $Distro) {
+    $available = @(& wsl.exe --list --quiet | ForEach-Object {
+        ($_ -replace [char]0, '').Trim()
+    } | Where-Object { $_ -and $_ -notmatch '^docker-desktop' })
+    if ($LASTEXITCODE -ne 0 -or $available.Count -eq 0) {
+        throw 'No regular WSL Linux distribution found. Install Ubuntu (wsl --install -d Ubuntu) or pass -Distro.'
+    }
+    $preferred = @($available | Where-Object { $_ -match '^Ubuntu' })
+    if ($preferred.Count -gt 0) { $Distro = $preferred[0] } else { $Distro = $available[0] }
 }
+Write-Host "Using WSL distribution: $Distro" -ForegroundColor Cyan
+$control = Join-Path $Workspace 'ElX-control'
+# --exec passes Windows backslashes through to wslpath without shell interpretation.
+$pathOutput = & wsl.exe --distribution $Distro --exec wslpath -a -u $control
+if ($LASTEXITCODE -ne 0 -or -not $pathOutput) {
+    throw "Could not translate Windows path '$control' in WSL distribution '$Distro'."
+}
+$linuxControl = ([string]($pathOutput | Select-Object -Last 1)).Trim()
+if (-not $linuxControl.StartsWith('/')) { throw "Unexpected translated path: '$linuxControl'" }
 if ($linuxControl.Contains("'")) { throw 'Workspace path cannot contain an apostrophe.' }
 $linuxCommand = "set -euo pipefail; cd '$linuxControl'; command -v go; command -v python3; command -v openssl; command -v gcc; command -v docker; docker info >/dev/null; bash scripts/elx-test-local.sh"
 Write-Host "Running standalone ElX Control tests via WSL in: $linuxControl" -ForegroundColor Cyan
-& wsl.exe -- bash -lc $linuxCommand
+& wsl.exe --distribution $Distro --exec bash -lc $linuxCommand
 if ($LASTEXITCODE -ne 0) { throw "ElX tests failed (exit code $LASTEXITCODE); inspect the WSL output above." }
 Write-Host 'PASS: ElX Windows/WSL suite' -ForegroundColor Green
