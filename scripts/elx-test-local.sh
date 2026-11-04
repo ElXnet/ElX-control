@@ -2,6 +2,14 @@
 # Runs the current ElX integration tests on Linux or WSL.
 set -euo pipefail
 
+# WSL --exec starts a non-login shell, which may omit Snap and manual Go paths.
+# Keep PATH portable rather than requiring changes to a user's shell profile.
+for go_bin_dir in /snap/bin /usr/local/go/bin; do
+    if [[ -x "$go_bin_dir/go" && ":$PATH:" != *":$go_bin_dir:"* ]]; then
+        export PATH="$go_bin_dir:$PATH"
+    fi
+done
+
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 core=$(cd -- "${ELXRAY_SOURCE:-$root/../ElXray}" && pwd)
 for tool in go git openssl python3 gcc; do
