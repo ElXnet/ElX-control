@@ -155,6 +155,19 @@ func Handler(s Store)http.Handler{
   if err!=nil{failure(w,err);return}
   reply(w,http.StatusAccepted,result)
  })
+ mux.HandleFunc("POST /lk/v1/entitlements/{id}/fup-schedules",func(w http.ResponseWriter,r *http.Request){
+  account,ok:=s.requireAccount(w,r,true)
+  if !ok{return}
+  id:=r.PathValue("id")
+  if !s.requireOwnership(w,r,account,id){return}
+  var spec management.ScheduleSpec
+  if !readJSON(w,r,&spec){return}
+  result,err:=(management.SQLStore{DB:s.DB}).CreateUserSchedule(r.Context(),id,spec)
+  if err!=nil{failure(w,err);return}
+  status:=http.StatusCreated
+  if result.AlreadyExisted{status=http.StatusOK}
+  reply(w,status,result)
+ })
  return http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
   w.Header().Set("Cache-Control","no-store")
   if strings.HasPrefix(r.URL.Path,"/lk/v1/"){mux.ServeHTTP(w,r);return}
