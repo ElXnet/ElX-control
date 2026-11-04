@@ -61,6 +61,30 @@ func reconcileFUP(ctx context.Context, db *sql.DB, specific string) error {
 	return nil
 }
 
+// reconcileMaintenance advances due calendar periods before scheduling rate
+// reductions. This is intentionally centralized: node agents never invent
+// period IDs or rewrite authoritative accounting watermarks.
+func reconcileMaintenance(ctx context.Context, db *sql.DB, entitlement string) error {
+	if entitlement == "" {
+		if _, err := journal.AdvanceDue(ctx, db, time.Now().UTC()); err != nil {
+			return err
+		}
+	}
+	return reconcileFUP(ctx, db, entitlement)
+}
+
+func advancePeriods(ctx context.Context, db *sql.DB, args []string) error {
+	if len(args) != 0 {
+		return errors.New("advance-periods accepts no arguments")
+	}
+	count, err := journal.AdvanceDue(ctx, db, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	fmt.Println(count)
+	return nil
+}
+
 func runFUP(ctx context.Context, db *sql.DB, args []string, continuous bool) error {
 	fs := flag.NewFlagSet("reconcile-fup", flag.ContinueOnError)
 	target := fs.String("entitlement", "", "optional entitlement UUID (default: all active FUP events)")
@@ -74,7 +98,7 @@ func runFUP(ctx context.Context, db *sql.DB, args []string, continuous bool) err
 	if ctx.Err() != nil {
 		return nil
 	}
-	if err := reconcileFUP(ctx, db, *target); err != nil || !continuous {
+	if err := reconcileMaintenance(ctx, db, *target); err != nil || !continuous {
 		return err
 	}
 	ticker := time.NewTicker(*interval)
@@ -84,7 +108,7 @@ func runFUP(ctx context.Context, db *sql.DB, args []string, continuous bool) err
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			if err := reconcileFUP(ctx, db, *target); err != nil {
+			if err := reconcileMaintenance(ctx, db, *target); err != nil {
 				// Fail closed. Do not continue silently after a database or
 				// authority failure; the service supervisor restarts us.
 				return err
