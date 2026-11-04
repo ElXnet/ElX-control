@@ -41,12 +41,15 @@ def check(workspace: Path) -> list[str]:
         if not (control / rel).is_file():
             errors.append(f"Missing canonical Control asset: {rel}")
 
-    for path in (ui / "internal", ui / "cmd").rglob("*.go"):
-        text = path.read_text(encoding="utf-8")
-        for candidate in INVALID_IMPORTS:
-            if candidate in text:
-                errors.append(f"UI imports private Control implementation: {path.relative_to(ui)}")
-                break
+    for source_root in (ui / "internal", ui / "cmd"):
+        if not source_root.is_dir():
+            continue
+        for path in source_root.rglob("*.go"):
+            text = path.read_text(encoding="utf-8")
+            for candidate in INVALID_IMPORTS:
+                if candidate in text:
+                    errors.append(f"UI imports private Control implementation: {path.relative_to(ui)}")
+                    break
 
     for rel in (
         "internal/web/controller/elx_management.go",
