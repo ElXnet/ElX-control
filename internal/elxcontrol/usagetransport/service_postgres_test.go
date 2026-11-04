@@ -255,6 +255,29 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 	if err:=good.Invoke(ctx,leaseRoute,wrapperspb.Bytes(leaseInput),&leaseWire);err!=nil {
 		t.Fatalf("eligible node did not get a signed Control lease: %v",err)
 	}
+	// Even with an otherwise valid mTLS identity and subscription, an
+	// outdated policy manifest must not authorize a post-rotation lease.
+	_,err=db.ExecContext(ctx,`UPDATE elx_rate_grants SET epoch=2
+		WHERE node_id=$1 AND resource_id=$2`,binding.NodeID,leaseResource)
+	if err!=nil{t.Fatal(err)}
+	if err:=good.Invoke(ctx,leaseRoute,wrapperspb.Bytes(leaseInput),&leaseWire);
+		status.Code(err)!=codes.FailedPrecondition{
+		t.Fatalf("stale policy epoch obtained signed lease: %v",err)
+	}
+	_,err=db.ExecContext(ctx,`UPDATE elx_rate_grants SET epoch=1
+		WHERE node_id=$1 AND resource_id=$2`,binding.NodeID,leaseResource)
+	if err!=nil{t.Fatal(err)}
+	_,err=db.ExecContext(ctx,`UPDATE elx_rate_grants SET barrier_public_key=$1
+		WHERE node_id=$2 AND resource_id=$3`,make([]byte,32),binding.NodeID,leaseResource)
+	if err!=nil{t.Fatal(err)}
+	if err:=good.Invoke(ctx,leaseRoute,wrapperspb.Bytes(leaseInput),&leaseWire);
+		status.Code(err)!=codes.FailedPrecondition{
+		t.Fatalf("stale policy signing key obtained lease: %v",err)
+	}
+	_,err=db.ExecContext(ctx,`UPDATE elx_rate_grants SET barrier_public_key=$1
+		WHERE node_id=$2 AND resource_id=$3`,[]byte(pub),binding.NodeID,leaseResource)
+	if err!=nil{t.Fatal(err)}
+
 	// The same mTLS endpoint carries rate barriers, but only after the
 	// journal confirms a policy update. The test core signs the transcript
 	// after the separate core-level drain contract is independently tested.
