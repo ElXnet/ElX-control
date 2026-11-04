@@ -216,9 +216,12 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 	})))
 	if err := Register(srv,db); err != nil { t.Fatal(err) }
 	if err := fencetransport.Register(srv,db); err != nil { t.Fatal(err) }
-	if err:=policytransport.Register(srv,db,policytransport.Binding{
+	currentBindings:=[]policytransport.Binding{{
 		Target:journal.Target{NodeID:binding.NodeID.String(),ResourceID:leaseResource.String()},
 		Subscription:sub,Epoch:1,PublicKey:pub,
+	}}
+	if err:=policytransport.RegisterWithSource(srv,db,func()([]policytransport.Binding,error){
+		return currentBindings,nil
 	});err!=nil {t.Fatal(err)}
 	go srv.Serve(lis)
 	t.Cleanup(func(){srv.Stop();lis.Close()})
@@ -255,6 +258,26 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 	if err:=good.Invoke(ctx,leaseRoute,wrapperspb.Bytes(leaseInput),&leaseWire);err!=nil {
 		t.Fatalf("eligible node did not get a signed Control lease: %v",err)
 	}
+	// Live subscription changes must be visible without restarting Control;
+	// an unassigned target or corrupted manifest cannot reuse stale cache.
+	currentBindings=nil
+	if err:=good.Invoke(ctx,leaseRoute,wrapperspb.Bytes(leaseInput),&leaseWire);
+		status.Code(err)!=codes.Unavailable{
+		t.Fatalf("invalid hot-reloaded policy manifest was accepted: %v",err)
+	}
+	currentBindings=[]policytransport.Binding{{
+		Target:journal.Target{NodeID:binding.NodeID.String(),ResourceID:leaseResource.String()},
+		Subscription:"another-vless-profile",Epoch:1,PublicKey:pub,
+	}}
+	if err:=good.Invoke(ctx,leaseRoute,wrapperspb.Bytes(leaseInput),&leaseWire);
+		status.Code(err)!=codes.PermissionDenied{
+		t.Fatalf("superseded subscription still obtained a lease: %v",err)
+	}
+	currentBindings=[]policytransport.Binding{{
+		Target:journal.Target{NodeID:binding.NodeID.String(),ResourceID:leaseResource.String()},
+		Subscription:sub,Epoch:1,PublicKey:pub,
+	}}
+
 	// Even with an otherwise valid mTLS identity and subscription, an
 	// outdated policy manifest must not authorize a post-rotation lease.
 	_,err=db.ExecContext(ctx,`UPDATE elx_rate_grants SET epoch=2
