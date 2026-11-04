@@ -59,6 +59,9 @@ var billingProfilesSchema string
 //go:embed 016_core_rotation.sql
 var coreRotationSchema string
 
+//go:embed 017_paid_node_inventory.sql
+var paidNodeInventorySchema string
+
 // Migrate installs the journal schema in the Control database. The database
 // role must have DDL privileges in its configured schema.
 func Migrate(ctx context.Context, db *sql.DB) error {
@@ -75,7 +78,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	)`); err != nil {
 		return err
 	}
-	for i, ddl := range []string{schema, sessionSchema, deviceProofSchema, accountingSchema, rateGrantSchema, sessionFenceSchema, coreIdentitySchema, accountingAssignmentSchema, periodScheduleSchema, remoteUsageChallengeSchema, sessionProfileSchema, lkSchema, usageProvisioningSchema, usageFreshnessSchema, billingProfilesSchema, coreRotationSchema} {
+	for i, ddl := range []string{schema, sessionSchema, deviceProofSchema, accountingSchema, rateGrantSchema, sessionFenceSchema, coreIdentitySchema, accountingAssignmentSchema, periodScheduleSchema, remoteUsageChallengeSchema, sessionProfileSchema, lkSchema, usageProvisioningSchema, usageFreshnessSchema, billingProfilesSchema, coreRotationSchema, paidNodeInventorySchema} {
 		if err := applyMigration(ctx, tx, i+1, ddl); err != nil {
 			return err
 		}
