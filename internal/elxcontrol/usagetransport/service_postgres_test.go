@@ -159,8 +159,8 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 		VALUES($1,$2,$3,$4,'total',50,20,20)`,period,entitlement,start,end)
 	if err != nil { t.Fatal(err) }
 	_,err=db.ExecContext(ctx,`INSERT INTO elx_period_schedules
-		(id,entitlement_id,cadence,timezone_name,current_period_id)
-		VALUES($1,$2,'day','UTC',$3)`,schedule,entitlement,period)
+		(id,entitlement_id,cadence,timezone_name,current_period_id,enabled)
+		VALUES($1,$2,'day','UTC',$3,false)`,schedule,entitlement,period)
 	if err != nil { t.Fatal(err) }
 	_,err=db.ExecContext(ctx,`UPDATE elx_usage_periods SET schedule_id=$2 WHERE id=$1`,period,schedule)
 	if err != nil { t.Fatal(err) }
@@ -236,6 +236,9 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 		status.Code(err)!=codes.PermissionDenied {
 		t.Fatalf("foreign mTLS certificate received Control lease: %v",err)
 	}
+	// An unenrolled FUP schedule is staged and must not interrupt a
+	// paying VPN subscription. Once enabled, leases require current signed
+	// accounting bound to every active rate grant.
 	if err:=good.Invoke(ctx,leaseRoute,wrapperspb.Bytes(leaseInput),&leaseWire);err!=nil {
 		t.Fatalf("eligible node did not get a signed Control lease: %v",err)
 	}
