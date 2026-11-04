@@ -15,6 +15,8 @@ Standalone Go control-plane module for the ElX VPN service. **ElX-control is the
 
 See `docs/elx/policy-smoke.ru.md` for Windows/WSL, PostgreSQL and two-node live VLESS integration checks.
 
+Signed FUP provisioning: `elx-control provision-usage` links one purchased node rate grant to a pinned ElXray identity, a current FUP period and an authenticated accounting stream. `elx-control usage-coverage` reports bound, primed and fresh sources. The first signed sample establishes a watermark instead of charging historical traffic. See `docs/elx/signed-fup-provisioning.ru.md` for operator procedures and limitations.
+
 ## Windows quick start
 
 With Git for Windows, WSL Ubuntu, Docker Desktop and a Go toolchain installed, download and execute:
