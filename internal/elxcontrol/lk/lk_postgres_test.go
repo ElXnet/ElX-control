@@ -85,6 +85,14 @@ func TestLKInviteRegistrationLoginAndOwnership(t *testing.T){
  h:=Handler(store)
  denied:=lkRequest(t,h,"GET","/lk/v1/entitlements/"+e2,nil,account.Token(),"")
  if denied.Code!=401{t.Fatalf("foreign entitlement exposed %d",denied.Code)}
+ for _,path:=range []string{
+  "/lk/v1/entitlements/"+e2+"/sessions/00000000-0000-4000-8000-000000000098/drain",
+  "/lk/v1/entitlements/"+e2+"/devices/00000000-0000-4000-8000-000000000099/revoke",
+ }{
+  w:=lkRequest(t,h,"POST",path,nil,account.Token(),account.CSRF)
+  if w.Code!=401{t.Fatalf("cross-account mutation permitted %s: %d",path,w.Code)}
+ }
+
  noCSRF:=lkRequest(t,h,"POST","/lk/v1/logout",nil,account.Token(),"")
  if noCSRF.Code!=401{t.Fatalf("logout allowed without CSRF: %d",noCSRF.Code)}
  second,err:=store.IssueInvite(ctx,e2,72*time.Hour)
