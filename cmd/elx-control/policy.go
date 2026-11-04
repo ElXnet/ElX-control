@@ -16,10 +16,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/corepolicy"
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/journal"
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/policytransport"
-	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -151,12 +151,7 @@ func applyPolicy(ctx context.Context) error {
 		return err
 	}
 	defer conn.Close()
-	var core *corepolicy.Client
-	if addr := os.Getenv("ELXRAY_POLICY_LOOPBACK"); addr != "" {
-		core, err = corepolicy.OpenLoopback(addr)
-	} else {
-		core, err = corepolicy.Open(os.Getenv("ELXRAY_POLICY_SOCKET"))
-	}
+	core, err := openCore()
 	if err != nil {
 		return err
 	}
@@ -180,4 +175,31 @@ func printPolicyKey(args []string) error {
 	}
 	fmt.Println(base64.StdEncoding.EncodeToString(ed25519.NewKeyFromSeed(seed).Public().(ed25519.PublicKey)))
 	return nil
+}
+
+func openCore() (*corepolicy.Client, error) {
+	if addr := os.Getenv("ELXRAY_POLICY_LOOPBACK"); addr != "" {
+		return corepolicy.OpenLoopback(addr)
+	}
+	return corepolicy.Open(os.Getenv("ELXRAY_POLICY_SOCKET"))
+}
+
+func readUsage(ctx context.Context, args []string) error {
+	if len(args) != 2 {
+		return errors.New("usage: elx-control read-usage SUBSCRIPTION CORE_PUBLIC_KEY")
+	}
+	key, err := base64.StdEncoding.DecodeString(args[1])
+	if err != nil || len(key) != ed25519.PublicKeySize {
+		return errors.New("invalid core public key")
+	}
+	core, err := openCore()
+	if err != nil {
+		return err
+	}
+	defer core.Close()
+	sample, err := core.ReadUsage(ctx, args[0], key)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(os.Stdout).Encode(sample)
 }
