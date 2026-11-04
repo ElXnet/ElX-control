@@ -33,6 +33,21 @@ func TestCoreRotationRequiresSignedDrainAndRetainsOccupiedSessions(t *testing.T)
 	_,err=db.ExecContext(ctx,`INSERT INTO elx_core_identities(node_id,incarnation,public_key)
 	 VALUES($1,$2,$3)`,node,oldBoot,[]byte(oldPub))
 	checkError(t,err,nil)
+	// The paid node inventory and rate epoch must rotate atomically too.
+	_,err=db.ExecContext(ctx,`INSERT INTO elx_node_inventory(node_id,incarnation,enabled)
+	 VALUES($1,$2,true)`,node,oldBoot)
+	checkError(t,err,nil)
+	paidProfile:=uuid.New()
+	_,err=db.ExecContext(ctx,`INSERT INTO elx_paid_profiles
+	 (id,entitlement_id,vless_id,subscription_id,client_email)
+	 VALUES($1,$2,$3,$4,$5)`,paidProfile,ent,uuid.New(),
+	 uuid.NewString(),"elx-rotation-"+paidProfile.String())
+	checkError(t,err,nil)
+	_,err=db.ExecContext(ctx,`INSERT INTO elx_paid_profile_nodes
+	 (profile_id,node_id,resource_id,epoch) VALUES($1,$2,$3,1)`,
+	 paidProfile,node,res)
+	checkError(t,err,nil)
+
 	device,profile,operation,owner:=uuid.New(),uuid.New(),uuid.New(),uuid.New()
 	devicePub,_,err:=ed25519.GenerateKey(nil)
 	checkError(t,err,nil)
@@ -120,6 +135,17 @@ func TestCoreRotationRequiresSignedDrainAndRetainsOccupiedSessions(t *testing.T)
 	checkError(t,err,nil)
 	if !oldRevoked||newRevoked||newEpoch!=2||string(newKey)!=string(newPub){
 		t.Fatalf("core pins not switched safely: old=%v new=%v epoch=%d",oldRevoked,newRevoked,newEpoch)
+	}
+	var inventoryBoot uuid.UUID
+	var paidEpoch int64
+	err=db.QueryRowContext(ctx,`SELECT incarnation FROM elx_node_inventory
+	 WHERE node_id=$1`,node).Scan(&inventoryBoot)
+	checkError(t,err,nil)
+	err=db.QueryRowContext(ctx,`SELECT epoch FROM elx_paid_profile_nodes
+	 WHERE profile_id=$1 AND node_id=$2`,paidProfile,node).Scan(&paidEpoch)
+	checkError(t,err,nil)
+	if inventoryBoot!=newBoot||paidEpoch!=2{
+		t.Fatalf("paid node retained old core/epoch: boot=%s epoch=%d",inventoryBoot,paidEpoch)
 	}
 	if _,err=session.IssueChallenge(ctx,db,intent);!errors.Is(err,session.ErrDenied){
 		t.Fatalf("retired incarnation admitted device after cutover: %v",err)
