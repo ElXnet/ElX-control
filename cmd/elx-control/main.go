@@ -17,7 +17,7 @@ import (
 
 func run(ctx context.Context, args []string, dsn string) error {
 	if len(args) == 0 {
-		return errors.New("usage: elx-control migrate|serve-policy|serve-agent|enqueue-policy|apply-policy|policy-public-key|read-usage|collect-usage|reconcile-fup|serve-fup")
+		return errors.New("usage: elx-control migrate|serve-policy|serve-agent|enqueue-policy|apply-policy|policy-public-key|read-usage|collect-usage|reconcile-fup|serve-fup|advance-periods")
 	}
 	switch args[0] {
 	case "policy-public-key":
@@ -31,11 +31,11 @@ func run(ctx context.Context, args []string, dsn string) error {
 			return errors.New("usage: elx-control apply-policy")
 		}
 		return applyPolicy(ctx)
-	case "migrate", "serve-policy", "enqueue-policy", "collect-usage", "reconcile-fup", "serve-fup":
+	case "migrate", "serve-policy", "enqueue-policy", "collect-usage", "reconcile-fup", "serve-fup", "advance-periods":
 	default:
 		return errors.New("unknown elx-control command")
 	}
-	if args[0] != "enqueue-policy" && args[0] != "collect-usage" && args[0] != "reconcile-fup" && args[0] != "serve-fup" && len(args) != 1 {
+	if args[0] != "enqueue-policy" && args[0] != "collect-usage" && args[0] != "reconcile-fup" && args[0] != "serve-fup" && args[0] != "advance-periods" && len(args) != 1 {
 		return errors.New("unexpected arguments")
 	}
 	if dsn == "" {
@@ -63,6 +63,8 @@ func run(ctx context.Context, args []string, dsn string) error {
 		return collectUsage(ctx, db, args[1:])
 	case "reconcile-fup", "serve-fup":
 		return runFUP(ctx, db, args[1:], args[0] == "serve-fup")
+	case "advance-periods":
+		return advancePeriods(ctx, db, args[1:])
 	default:
 		return nil
 	}
