@@ -147,6 +147,24 @@ func TestAdvancePeriodAtomicWatermarkNoDoubleCharge(t *testing.T) {
 	replayed, err := AdvancePeriod(ctx, db, schedule, end.Add(time.Hour))
 	checkError(t, err, nil)
 	if replayed.Advanced { t.Fatalf("rollover replay created a new period: %+v", replayed) }
+	// A controller restarted after several missed deadlines must advance every
+	// missed calendar boundary without duplicating the last cumulative sample.
+	steps, err := AdvanceDue(ctx, db, end.Add(72*time.Hour))
+	checkError(t, err, nil)
+	if steps != 3 {
+		t.Fatalf("missed boundary recovery advanced %d periods, want 3", steps)
+	}
+	var current uuid.UUID
+	err = db.QueryRowContext(ctx, `SELECT current_period_id FROM elx_period_schedules WHERE id=$1`,
+		schedule).Scan(&current)
+	checkError(t, err, nil)
+	var bytesUp, bytesDown int64
+	err = db.QueryRowContext(ctx, `SELECT up_bytes,down_bytes FROM elx_accounting_streams
+		WHERE period_id=$1`, current).Scan(&bytesUp, &bytesDown)
+	checkError(t, err, nil)
+	if bytesUp != 80 || bytesDown != 100 {
+		t.Fatalf("cumulative stream watermark changed during catchup: %d/%d", bytesUp, bytesDown)
+	}
 }
 
 func TestAdvanceDueDoesNotTouchUnscheduledPeriods(t *testing.T) {
