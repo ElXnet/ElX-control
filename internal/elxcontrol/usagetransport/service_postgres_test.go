@@ -120,6 +120,15 @@ func (c *proofCore) ReadUsageEvidence(_ context.Context, subscription, nonce str
 	return c.sig,nil
 }
 
+type fakeProfileDrainer struct { key ed25519.PrivateKey }
+func (d fakeProfileDrainer) DrainProfile(_ context.Context, f session.Fence,
+	pinned ed25519.PublicKey) ([]byte,error) {
+	if string(pinned)!=string(d.key.Public().(ed25519.PublicKey)) {
+		return nil,fmt.Errorf("ElXray core key differs from Control binding")
+	}
+	return ed25519.Sign(d.key,session.FenceTranscript(f)),nil
+}
+
 func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 	ctx, db := testRemoteDB(t)
 	entitlement, schedule, period := uuid.New(),uuid.New(),uuid.New()
@@ -243,6 +252,13 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 		t.Fatalf("node released slot without Control authorization: %v",err)
 	}
 	if err:=session.QueueDrain(ctx,db,owner);err!=nil {t.Fatal(err)}
+	if err:=fencetransport.ApplyNext(ctx,foreign,fakeProfileDrainer{key});status.Code(err)!=codes.NotFound {
+		t.Fatalf("foreign mTLS node received our queued drain job: %v",err)
+	}
+	if err:=fencetransport.ApplyNext(ctx,good,fakeProfileDrainer{key});err!=nil {
+		t.Fatalf("authorized agent did not finish queued profile drain: %v",err)
+	}
+	// A lost ACK can re-submit the same core receipt without reviving the slot.
 	if err:=fencetransport.Send(ctx,good,f,sig);err!=nil {t.Fatal(err)}
 	if err:=fencetransport.Send(ctx,good,f,sig);err!=nil {
 		t.Fatalf("idempotent fence retry after lost ACK failed: %v",err)
