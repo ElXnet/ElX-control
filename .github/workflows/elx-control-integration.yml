@@ -12,6 +12,7 @@ on:
       - ".github/workflows/elx-control-integration.yml"
       - "go.mod"
       - "go.sum"
+      - "scripts/check-control-parity.py"
   workflow_dispatch:
 
 permissions:
@@ -42,6 +43,13 @@ jobs:
         with:
           path: ElX-control
 
+      - name: Checkout ElX-ui compatibility mirror
+        uses: actions/checkout@v4
+        with:
+          repository: ElXnet/ElX-ui
+          ref: elx-control-journal
+          path: ElX-ui
+
       - name: Checkout ElXray integration branch
         uses: actions/checkout@v4
         with:
@@ -62,6 +70,9 @@ jobs:
           gcc --version | head -1
           git -C ElX-control rev-parse HEAD
           git -C ElXray rev-parse HEAD
+
+      - name: Check Control source parity
+        run: python3 ElX-control/scripts/check-control-parity.py
 
       - name: Run race, PostgreSQL, policy and VLESS integration suite
         working-directory: ElX-control
