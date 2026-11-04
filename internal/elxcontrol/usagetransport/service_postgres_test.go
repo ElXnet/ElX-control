@@ -43,7 +43,8 @@ func testRemoteDB(t *testing.T) (context.Context, *sql.DB) {
 	if err != nil { t.Fatal(err) }
 	admin := stdlib.OpenDB(*cfg)
 	t.Cleanup(func(){admin.Close()})
-	schema := "elx_remote_" + hex.EncodeToString(uuid.New()[:8])
+	randomID := uuid.New()
+	schema := "elx_remote_" + hex.EncodeToString(randomID[:8])
 	_, err = admin.ExecContext(ctx, "CREATE SCHEMA " + schema)
 	if err != nil { t.Fatal(err) }
 	t.Cleanup(func(){
