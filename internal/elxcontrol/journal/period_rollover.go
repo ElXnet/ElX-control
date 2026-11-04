@@ -63,7 +63,7 @@ func AdvancePeriod(ctx context.Context, db *sql.DB, scheduleID uuid.UUID, now ti
 	if err != nil {
 		return out, err
 	}
-	if !ends.After(starts) || !now.Before(ends) && now.IsZero() {
+	if !ends.After(starts) {
 		return out, ErrPeriod
 	}
 	if now.Before(ends) {
