@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/policytransport"
+	"github.com/ElXnet/ElX-control/internal/elxcontrol/fencetransport"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -69,6 +70,26 @@ func serveAgent(ctx context.Context, args []string) error {
 				// Malformed, unauthorized or mismatched policy evidence must
 				// stop the worker instead of silently re-trying indefinitely.
 				return fmt.Errorf("policy application failed closed: %w", err)
+			}
+		}
+		// Drain tasks are authorized and persisted centrally; the node never
+		// invents an OwnerID or frees a slot simply because traffic is idle.
+		drainCtx, done := context.WithTimeout(ctx, 40*time.Second)
+		drainErr := fencetransport.ApplyNext(drainCtx, conn, core)
+		done()
+		if ctx.Err() != nil {
+			return nil
+		}
+		if drainErr != nil {
+			switch status.Code(drainErr) {
+			case codes.NotFound:
+				// No Control-approved session termination for this node.
+			case codes.Unavailable, codes.DeadlineExceeded:
+				fmt.Fprintln(os.Stderr, "ElX session drain evidence not confirmed; retrying")
+			default:
+				// Wrong core boot, profile or key: keep the owner occupied and
+				// require explicit operator reconciliation instead of guessing.
+				return fmt.Errorf("session drain failed closed: %w", drainErr)
 			}
 		}
 		select {
