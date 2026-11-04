@@ -87,6 +87,7 @@ type Detail struct {
 	RateBudget *RateBudget `json:"rateBudget"`
 	Grants []Grant `json:"grants"`
 	Periods []Period `json:"periods"`
+	UsageCoverage []SignedCoverage `json:"usageCoverage"`
 }
 
 type ReconcileResult struct {
@@ -151,7 +152,7 @@ func (s SQLStore) List(ctx context.Context, after string, limit int) (Page, erro
 }
 
 func (s SQLStore) Get(ctx context.Context, id string) (Detail, error) {
-	out := Detail{Devices: []Device{}, Sessions: []Session{}, Grants: []Grant{}, Periods: []Period{}}
+	out := Detail{Devices: []Device{}, Sessions: []Session{}, Grants: []Grant{}, Periods: []Period{}, UsageCoverage: []SignedCoverage{}}
 	if s.DB == nil || !canonical(id) { return out, journal.ErrInvalid }
 	e, err := readEntitlement(s.DB.QueryRowContext(ctx, entitlementColumns + "WHERE e.id=$1", id))
 	if errors.Is(err, sql.ErrNoRows) { return out, ErrNotFound }
@@ -211,6 +212,29 @@ func (s SQLStore) Get(ctx context.Context, id string) (Detail, error) {
 	err=rows.Err();rows.Close()
 	if err!=nil{return out,err}
 	if len(out.Periods)>100{return out,errors.New("period listing exceeds management safety bound")}
+	// This view must not misrepresent a configured FUP schedule as actively
+	// accounted. Show per-schedule assigned and baseline-verified grants.
+	rows,err=s.DB.QueryContext(ctx,`SELECT s.id::text
+		FROM elx_period_schedules s JOIN elx_usage_periods p
+		ON p.id=s.current_period_id
+		WHERE s.entitlement_id=$1 AND s.enabled
+		AND p.starts_at<=clock_timestamp() AND p.ends_at>clock_timestamp()
+		ORDER BY s.id LIMIT 101`,id)
+	if err!=nil{return out,err}
+	var schedules []string
+	for rows.Next(){
+		var schedule string
+		if err=rows.Scan(&schedule);err!=nil{rows.Close();return out,err}
+		schedules=append(schedules,schedule)
+	}
+	err=rows.Err();rows.Close()
+	if err!=nil{return out,err}
+	if len(schedules)>100{return out,errors.New("schedule listing exceeds management safety bound")}
+	for _,schedule:=range schedules{
+		status,err:=s.UsageCoverage(ctx,id,schedule)
+		if err!=nil{return out,err}
+		out.UsageCoverage=append(out.UsageCoverage,status)
+	}
 	return out,nil
 }
 
