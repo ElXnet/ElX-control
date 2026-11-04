@@ -27,6 +27,7 @@ type reservationRequest struct {
 	Incarnation   uuid.UUID
 	KeyGeneration int64
 	ProofHash     [32]byte
+	ProfileID     uuid.UUID
 }
 
 type Owner struct {
@@ -39,7 +40,7 @@ type verifyReservation func(context.Context, *sql.Tx, bool) error
 
 func reserve(ctx context.Context, db *sql.DB, req reservationRequest, verify verifyReservation) (Owner, error) {
 	if req.EntitlementID == uuid.Nil || req.DeviceID == uuid.Nil || req.NodeID == uuid.Nil ||
-		req.OperationID == uuid.Nil || req.Incarnation == uuid.Nil || req.KeyGeneration <= 0 || req.ProofHash == [32]byte{} {
+		req.OperationID == uuid.Nil || req.Incarnation == uuid.Nil || req.KeyGeneration <= 0 || req.ProfileID == uuid.Nil || req.ProofHash == [32]byte{} {
 		return Owner{}, ErrInvalid
 	}
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
@@ -53,14 +54,14 @@ func reserve(ctx context.Context, db *sql.DB, req reservationRequest, verify ver
 	}
 
 	var owner Owner
-	var device, node uuid.UUID
+	var device, node, priorProfile uuid.UUID
 	var priorKey int64
 	var proof []byte
-	err = tx.QueryRowContext(ctx, `SELECT id,generation,state,device_id,node_id,key_generation,proof_hash
+	err = tx.QueryRowContext(ctx, `SELECT id,generation,state,device_id,node_id,key_generation,proof_hash,profile_id
 		FROM elx_session_owners WHERE entitlement_id=$1 AND operation_id=$2`, req.EntitlementID, req.OperationID).
 		Scan(&owner.ID, &owner.Generation, &owner.State, &device, &node, &priorKey, &proof)
 	if err == nil {
-		if device != req.DeviceID || node != req.NodeID || priorKey != req.KeyGeneration || !bytes.Equal(proof, req.ProofHash[:]) {
+		if device != req.DeviceID || node != req.NodeID || priorKey != req.KeyGeneration || priorProfile != req.ProfileID || !bytes.Equal(proof, req.ProofHash[:]) {
 			return Owner{}, ErrConflict
 		}
 		if err := verify(ctx, tx, true); err != nil {
@@ -98,10 +99,10 @@ func reserve(ctx context.Context, db *sql.DB, req reservationRequest, verify ver
 		return Owner{}, err
 	}
 	err = tx.QueryRowContext(ctx, `INSERT INTO elx_session_owners
-		(id,entitlement_id,device_id,node_id,operation_id,generation,key_generation,proof_hash,state,core_incarnation)
+		(id,entitlement_id,device_id,node_id,operation_id,generation,key_generation,proof_hash,state,core_incarnation,profile_id)
 		VALUES ($1,$2,$3,$4,$5,(SELECT COALESCE(max(generation),0)+1 FROM elx_session_owners WHERE device_id=$3),
-		$6,$7,'reserving',$8) RETURNING generation,state`, owner.ID, req.EntitlementID, req.DeviceID, req.NodeID,
-		req.OperationID, req.KeyGeneration, req.ProofHash[:], req.Incarnation).Scan(&owner.Generation, &owner.State)
+		$6,$7,'reserving',$8,$9) RETURNING generation,state`, owner.ID, req.EntitlementID, req.DeviceID, req.NodeID,
+		req.OperationID, req.KeyGeneration, req.ProofHash[:], req.Incarnation, req.ProfileID).Scan(&owner.Generation, &owner.State)
 	if err != nil {
 		return Owner{}, err
 	}
