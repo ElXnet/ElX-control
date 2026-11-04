@@ -1,7 +1,6 @@
 package journal
 
 import (
-	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/binary"
