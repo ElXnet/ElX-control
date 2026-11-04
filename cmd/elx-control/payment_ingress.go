@@ -8,6 +8,8 @@ import (
  "net/http"
  "os"
  "path/filepath"
+ "strconv"
+ "strings"
  "time"
 
  "github.com/ElXnet/ElX-control/internal/elxcontrol/billing"
@@ -36,7 +38,17 @@ func servePaymentIngress(ctx context.Context,db *sql.DB)error{
  if err!=nil{return err}
  defer listener.Close()
  defer os.Remove(path)
- if err=os.Chmod(path,0600);err!=nil{return err}
+ // A separate verifier UID can access the payment socket through a
+ // dedicated group. The 0600 management socket must remain owned only by
+ // Control, with a different UID. Never add the verifier to that UID/group.
+ if raw:=strings.TrimSpace(os.Getenv("ELX_PAYMENT_GID"));raw!=""{
+  gid,parseErr:=strconv.Atoi(raw)
+  if parseErr!=nil||gid<1{return errors.New("invalid ELX_PAYMENT_GID")}
+  if err=os.Chown(path,-1,gid);err!=nil{return err}
+  if err=os.Chmod(path,0660);err!=nil{return err}
+ }else{
+  if err=os.Chmod(path,0600);err!=nil{return err}
+ }
  server:=&http.Server{
   Handler:billing.PaymentIngressHandler(db,public),
   ReadHeaderTimeout:5*time.Second,IdleTimeout:30*time.Second,
