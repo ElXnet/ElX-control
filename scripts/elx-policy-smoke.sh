@@ -9,9 +9,10 @@ umask 077
 core_pid=
 second_pid=
 control_pid=
+agent_pid=
 cleanup() {
     local result=$?
-    for pid in "$core_pid" "$second_pid" "$control_pid"; do
+    for pid in "$core_pid" "$second_pid" "$control_pid" "$agent_pid"; do
         if [[ -n "$pid" ]]; then
             kill "$pid" 2>/dev/null || true
             wait "$pid" 2>/dev/null || true
@@ -134,9 +135,26 @@ for _ in {1..40}; do
     kill -0 "$second_pid"
     sleep 0.1
 done
-ELXRAY_POLICY_LOOPBACK="$second_addr" apply_as second
-ELXRAY_POLICY_LOOPBACK="$second_addr" get_policy > "$dir/second-readback.json"
-grep -Eq '"revision":[[:space:]]*2' "$dir/second-readback.json"
+# Prove the long-lived node agent applies the pending policy without a
+# manual apply-policy invocation and exits safely when stopped.
+ELX_TLS_CERT="$dir/second.pem" ELX_TLS_KEY="$dir/second.key"   ELXRAY_POLICY_LOOPBACK="$second_addr"   "$ELX_CONTROL_BIN" serve-agent -interval 200ms > "$dir/agent.log" 2>&1 &
+agent_pid=$!
+received=false
+for _ in {1..80}; do
+    if ELXRAY_POLICY_LOOPBACK="$second_addr" get_policy > "$dir/second-readback.json" 2>/dev/null        && grep -Eq '"revision":[[:space:]]*2' "$dir/second-readback.json"; then
+        received=true
+        break
+    fi
+    kill -0 "$agent_pid"
+    sleep 0.1
+done
+if [[ "$received" != true ]]; then
+    echo 'Policy agent did not apply the second node command' >&2
+    exit 1
+fi
 grep -Eq '"downlinkBps":[[:space:]]*800' "$dir/second-readback.json"
+kill "$agent_pid"
+wait "$agent_pid" 2>/dev/null || true
+agent_pid=
 get_policy | grep -E '"downlinkBps":[[:space:]]*250'
-echo "PASS: mTLS, two nodes, wrong-core rejection, durable restart and replay"
+echo "PASS: mTLS, two nodes, wrong-core rejection, durable restart, replay and autonomous node agent"
