@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
+	"net/http"
+	"bytes"
 	"strings"
 	"testing"
 )
@@ -34,6 +36,11 @@ func (f *fakeStore) RevokeDevice(_ context.Context,entitlement,device string)(Re
 	if entitlement!=testEntitlement || device!=testOther {return RevokeResult{},ErrNotFound}
 	if f.err!=nil {return RevokeResult{},f.err}
 	return RevokeResult{DeviceID:device,Revoked:true,DrainQueued:1},nil
+}
+func (f *fakeStore) CreateSchedule(_ context.Context,id string,spec ScheduleSpec)(ScheduleCreated,error){
+ if id!=testEntitlement {return ScheduleCreated{},ErrNotFound}
+ if f.err!=nil{return ScheduleCreated{},f.err}
+ return ScheduleCreated{ScheduleID:spec.ScheduleID,PeriodID:testOther},nil
 }
 func (f *fakeStore) Reconcile(_ context.Context,id string)(ReconcileResult,error){
 	f.reconcileCalls++
@@ -106,4 +113,28 @@ func TestDeviceRevokeMethodAndOwnership(t *testing.T){
 	if w.Code!=404 {t.Fatalf("cross-entitlement revoke: %d",w.Code)}
 	w=serve(t,f,"POST","/v1/entitlements/"+testEntitlement+"/devices/bad/revoke")
 	if w.Code!=400 {t.Fatalf("bad device id: %d",w.Code)}
+}
+
+func TestFUPEndpointRequestValidation(t *testing.T){
+ f:=&fakeStore{}
+ id:="00000000-0000-4000-8000-000000000044"
+ good:=`{"scheduleId":"`+id+`","cadence":"month","timezone":"UTC","direction":"total","thresholdBytes":1000000,"reducedUp":1000,"reducedDown":1000}`
+ path:="/v1/entitlements/"+testEntitlement+"/fup-schedules"
+ for _,body:=range []string{
+  `{"unknown":"x"}`,`{"scheduleId":"bad"}`,good+"{}",
+  `{"scheduleId":"`+id+`","cadence":"month","timezone":"UTC","direction":"total","thresholdBytes":"NaN","reducedUp":1000,"reducedDown":1000}`,
+ }{
+  w:=httptest.NewRecorder()
+  req:=httptest.NewRequest(http.MethodPost,path,bytes.NewBufferString(body))
+  req.Header.Set("Content-Type","application/json")
+  Handler(f).ServeHTTP(w,req)
+  if w.Code!=400 {t.Fatalf("invalid body accepted %d %s",w.Code,w.Body.String())}
+ }
+ w:=httptest.NewRecorder()
+ req:=httptest.NewRequest(http.MethodPost,path,bytes.NewBufferString(good))
+ req.Header.Set("Content-Type","application/json")
+ Handler(f).ServeHTTP(w,req)
+ if w.Code!=201 || !strings.Contains(w.Body.String(),id){t.Fatalf("valid schedule: %d %s",w.Code,w.Body.String())}
+ w=serve(t,f,"GET",path)
+ if w.Code!=405{t.Fatalf("GET generated schedule %d",w.Code)}
 }
