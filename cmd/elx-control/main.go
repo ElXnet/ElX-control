@@ -17,7 +17,7 @@ import (
 
 func run(ctx context.Context, args []string, dsn string) error {
 	if len(args) == 0 {
-		return errors.New("usage: elx-control migrate|serve-policy|serve-agent|serve-usage|drain-profile|enqueue-drain|enqueue-policy|apply-policy|policy-public-key|read-usage|collect-usage|collect-current|reconcile-fup|serve-fup|advance-periods")
+		return errors.New("usage: elx-control migrate|serve-management|serve-policy|serve-agent|serve-usage|drain-profile|enqueue-drain|enqueue-policy|apply-policy|policy-public-key|read-usage|collect-usage|collect-current|reconcile-fup|serve-fup|advance-periods")
 	}
 	switch args[0] {
 	case "policy-public-key":
@@ -35,7 +35,7 @@ func run(ctx context.Context, args []string, dsn string) error {
 			return errors.New("usage: elx-control apply-policy")
 		}
 		return applyPolicy(ctx)
-	case "migrate", "serve-policy", "enqueue-policy", "enqueue-drain", "collect-usage", "collect-current", "reconcile-fup", "serve-fup", "advance-periods":
+	case "migrate", "serve-management", "serve-policy", "enqueue-policy", "enqueue-drain", "collect-usage", "collect-current", "reconcile-fup", "serve-fup", "advance-periods":
 	default:
 		return errors.New("unknown elx-control command")
 	}
@@ -61,6 +61,8 @@ func run(ctx context.Context, args []string, dsn string) error {
 	switch args[0] {
 	case "serve-policy":
 		return servePolicy(ctx, db)
+	case "serve-management":
+		return serveManagement(ctx, db)
 	case "enqueue-policy":
 		return enqueuePolicy(setup, db, args[1:])
 	case "enqueue-drain":
