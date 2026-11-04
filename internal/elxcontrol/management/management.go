@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -101,6 +102,7 @@ type Store interface {
 	Get(context.Context, string) (Detail, error)
 	QueueDrain(context.Context, string, string) error
 	RevokeDevice(context.Context, string, string) (RevokeResult, error)
+	CreateSchedule(context.Context, string, ScheduleSpec) (ScheduleCreated, error)
 	Reconcile(context.Context, string) (ReconcileResult, error)
 }
 
@@ -267,6 +269,25 @@ func Handler(store Store) http.Handler {
 		// Revoke is durable; stopped connections are proved separately by ElXray.
 		writeJSON(w,http.StatusAccepted,result)
 	})
+	mux.HandleFunc("POST /v1/entitlements/{id}/fup-schedules",func(w http.ResponseWriter,r *http.Request){
+		id:=r.PathValue("id")
+		if !canonical(id){writeErr(w,http.StatusBadRequest);return}
+		if !strings.HasPrefix(r.Header.Get("Content-Type"),"application/json"){
+			writeErr(w,http.StatusUnsupportedMediaType);return
+		}
+		r.Body=http.MaxBytesReader(w,r.Body,4096)
+		decoder:=json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		var spec ScheduleSpec
+		if err:=decoder.Decode(&spec);err!=nil{writeErr(w,http.StatusBadRequest);return}
+		var extra any
+		if err:=decoder.Decode(&extra);!errors.Is(err,io.EOF){writeErr(w,http.StatusBadRequest);return}
+		result,err:=store.CreateSchedule(r.Context(),id,spec)
+		if err!=nil{writeErr(w,errorStatus(err));return}
+		status:=http.StatusCreated
+		if result.AlreadyExisted{status=http.StatusOK}
+		writeJSON(w,status,result)
+	})
 	mux.HandleFunc("POST /v1/entitlements/{id}/reconcile-fup",func(w http.ResponseWriter,r *http.Request){
 		id:=r.PathValue("id")
 		if !canonical(id){writeErr(w,http.StatusBadRequest);return}
@@ -283,7 +304,8 @@ func Handler(store Store) http.Handler {
 func errorStatus(err error) int {
 	switch {
 	case errors.Is(err,ErrNotFound), errors.Is(err,sql.ErrNoRows):return http.StatusNotFound
-	case errors.Is(err,journal.ErrInvalid):return http.StatusBadRequest
+	case errors.Is(err,journal.ErrInvalid), errors.Is(err,ErrSchedule):return http.StatusBadRequest
+	case errors.Is(err,journal.ErrConflict):return http.StatusConflict
 	case errors.Is(err,session.ErrDrain):return http.StatusConflict
 	default:return http.StatusServiceUnavailable
 	}
