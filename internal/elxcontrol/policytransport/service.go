@@ -71,15 +71,36 @@ type receipt struct {
 type server struct {
 	db    *sql.DB
 	nodes map[string][]Binding
+	bindingSource func() ([]Binding,error)
 	leaseKey ed25519.PrivateKey
 }
 
 func (s *server) authorize(ctx context.Context) ([]Binding, error) {
 	id, err := nodeidentity.FromGRPC(ctx)
-	if err != nil || len(s.nodes[id]) == 0 {
-		return nil, status.Error(codes.PermissionDenied, "node is not assigned")
+	if err != nil {
+		return nil,status.Error(codes.PermissionDenied,"verified node identity required")
 	}
-	return s.nodes[id], nil
+	if s.bindingSource!=nil {
+		// Fail closed if the manifest was replaced with malformed or
+		// inaccessible data. Never authorize from yesterday's cached map.
+		current,err:=s.bindingSource()
+		if err!=nil || ValidateBindings(current)!=nil {
+			return nil,status.Error(codes.Unavailable,"trusted policy manifest unavailable")
+		}
+		bound:=make([]Binding,0)
+		for _,b:=range current {
+			if b.Target.NodeID==id {
+				b.PublicKey=slices.Clone(b.PublicKey)
+				bound=append(bound,b)
+			}
+		}
+		if len(bound)==0{return nil,status.Error(codes.PermissionDenied,"node is not assigned")}
+		return bound,nil
+	}
+	if len(s.nodes[id])==0 {
+		return nil,status.Error(codes.PermissionDenied,"node is not assigned")
+	}
+	return s.nodes[id],nil
 }
 
 // ValidateBindings enforces one journal per local subscription and separates
@@ -203,7 +224,22 @@ type service interface {
 // Register installs policy delivery for provisioned node bindings. Callers must configure
 // dedicated client CA verification on the gRPC server.
 func Register(g *grpc.Server, db *sql.DB, bindings ...Binding) error {
-	if db == nil {
+	return register(g,db,nil,bindings...)
+}
+
+// RegisterWithSource reloads the trusted, validated manifest before every
+// authenticated node command, so provisioning a new subscription does not
+// require restarting the master. The callback must read only operator-owned
+// files; a parse/permission error blocks new leases and policy jobs.
+func RegisterWithSource(g *grpc.Server,db *sql.DB,source func()([]Binding,error))error{
+	if source==nil{return errors.New("policy binding source required")}
+	initial,err:=source()
+	if err!=nil{return err}
+	return register(g,db,source,initial...)
+}
+
+func register(g *grpc.Server, db *sql.DB, source func()([]Binding,error), bindings ...Binding) error {
+	if g==nil || db == nil {
 		return errors.New("policy journal database is required")
 	}
 	if err := ValidateBindings(bindings); err != nil {
@@ -225,7 +261,7 @@ func Register(g *grpc.Server, db *sql.DB, bindings ...Binding) error {
 			{MethodName: "RateBarrierNext", Handler: handler("RateBarrierNext", (*server).nextRateBarrier)},
 			{MethodName: "RateBarrierConfirm", Handler: handler("RateBarrierConfirm", (*server).confirmRateBarrier)},
 		},
-	}, &server{db: db, nodes: nodes, leaseKey:leaseKey})
+	}, &server{db: db, nodes: nodes, bindingSource:source, leaseKey:leaseKey})
 	return nil
 }
 
