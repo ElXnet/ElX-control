@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/accounting"
-	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -56,5 +55,3 @@ func (s *receiver) bindings(ctx context.Context, _ *emptypb.Empty) (*wrapperspb.
 	return wrapperspb.Bytes(payload),nil
 }
 
-// Verify compile-time dependency on the trusted wire UUID type.
-var _ uuid.UUID
