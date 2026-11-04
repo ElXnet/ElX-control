@@ -55,7 +55,7 @@ def check(workspace: Path) -> list[str]:
     # Avoid reintroducing compilation of the old embedded module from
     # future UI scripts or Actions jobs, even if its files were deleted.
     stale_compile = re.compile(
-        r"go\\s+(?:test|build|run)\\b[^\\n]*(?:\\./cmd/elx-control|\\./internal/elxcontrol)"
+        r"go\s+(?:test|build|run)\b[^\n]*(?:\./cmd/elx-control|\./internal/elxcontrol)"
     )
     sources = (ui / "scripts", ui / ".github" / "workflows")
     for source_root in sources:
