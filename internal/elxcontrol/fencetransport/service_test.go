@@ -30,7 +30,7 @@ func verifiedFenceContext(node uuid.UUID) context.Context {
 
 func TestFenceTransportRejectsMissingIdentityAndWrongNode(t *testing.T) {
 	server:=&receiver{}
-	f:=session.Fence{OwnerID:uuid.New(),Generation:1,NodeID:uuid.New(),Incarnation:uuid.New()}
+	f:=session.Fence{OwnerID:uuid.New(),ProfileID:uuid.New(),Generation:1,NodeID:uuid.New(),Incarnation:uuid.New()}
 	raw,err:=json.Marshal(Receipt{Fence:f,Signature:make([]byte,64)})
 	if err!=nil {t.Fatal(err)}
 	_,err=server.submit(context.Background(),wrapperspb.Bytes(raw))
