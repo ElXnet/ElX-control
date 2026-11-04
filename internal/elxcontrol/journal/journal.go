@@ -33,8 +33,7 @@ type Command struct {
 // Enqueue records the command before delivery. Retry ambiguous commits with
 // the original ID and payload. Revisions advance only after application.
 func Enqueue(ctx context.Context, db *sql.DB, target Target, cmd Command) (int64, error) {
-	if cmd.ExpectedRevision < 0 || cmd.ExpectedRevision == math.MaxInt64 ||
-		len(cmd.Payload) == 0 || len(cmd.Payload) > 256*1024 {
+	if !validCommand(cmd) {
 		return 0, ErrInvalid
 	}
 	tx, err := db.BeginTx(ctx, nil)
@@ -42,7 +41,24 @@ func Enqueue(ctx context.Context, db *sql.DB, target Target, cmd Command) (int64
 		return 0, err
 	}
 	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `INSERT INTO elx_operation_targets(node_id, resource_id)
+	revision, err := enqueue(ctx, tx, target, cmd, false)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return revision, nil
+}
+
+func validCommand(cmd Command) bool {
+	return cmd.ExpectedRevision >= 0 && cmd.ExpectedRevision < math.MaxInt64 &&
+		len(cmd.Payload) > 0 && len(cmd.Payload) <= 256*1024
+}
+
+func enqueue(ctx context.Context, tx *sql.Tx, target Target, cmd Command, managed bool) (int64, error) {
+
+	_, err := tx.ExecContext(ctx, `INSERT INTO elx_operation_targets(node_id, resource_id)
 		VALUES ($1,$2) ON CONFLICT DO NOTHING`, target.NodeID, target.ResourceID)
 	if err != nil {
 		return 0, err
@@ -52,6 +68,17 @@ func Enqueue(ctx context.Context, db *sql.DB, target Target, cmd Command) (int64
 		WHERE node_id=$1 AND resource_id=$2 FOR UPDATE`, target.NodeID, target.ResourceID).Scan(&current)
 	if err != nil {
 		return 0, err
+	}
+	if !managed {
+		var hasGrant bool
+		err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM elx_rate_grants WHERE node_id=$1 AND resource_id=$2)`,
+			target.NodeID, target.ResourceID).Scan(&hasGrant)
+		if err != nil {
+			return 0, err
+		}
+		if hasGrant {
+			return 0, ErrManagedRate
+		}
 	}
 	var existing int64
 	var payload []byte
@@ -64,7 +91,7 @@ func Enqueue(ctx context.Context, db *sql.DB, target Target, cmd Command) (int64
 		if existing != next || !bytes.Equal(payload, cmd.Payload) {
 			return 0, ErrConflict
 		}
-		return existing, tx.Commit()
+		return existing, nil
 	case !errors.Is(err, sql.ErrNoRows):
 		return 0, err
 	case current != cmd.ExpectedRevision:
@@ -85,9 +112,6 @@ func Enqueue(ctx context.Context, db *sql.DB, target Target, cmd Command) (int64
 		(node_id,resource_id,operation_id,revision,payload,payload_hash)
 		VALUES ($1,$2,$3,$4,$5,$6)`, target.NodeID, target.ResourceID, cmd.ID, next, cmd.Payload, hash[:])
 	if err != nil {
-		return 0, err
-	}
-	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
 	return next, nil

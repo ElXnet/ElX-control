@@ -14,6 +14,27 @@ import (
 //go:embed 001_operations.sql
 var schema string
 
+//go:embed 002_sessions.sql
+var sessionSchema string
+
+//go:embed 003_device_proof.sql
+var deviceProofSchema string
+
+//go:embed 004_accounting.sql
+var accountingSchema string
+
+//go:embed 005_rate_grants.sql
+var rateGrantSchema string
+
+//go:embed 006_session_fences.sql
+var sessionFenceSchema string
+
+//go:embed 007_core_identities.sql
+var coreIdentitySchema string
+
+//go:embed 008_accounting_assignments.sql
+var accountingAssignmentSchema string
+
 // Migrate installs the journal schema in the Control database. The database
 // role must have DDL privileges in its configured schema.
 func Migrate(ctx context.Context, db *sql.DB) error {
@@ -30,29 +51,38 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	)`); err != nil {
 		return err
 	}
-	sum := sha256.Sum256([]byte(schema))
+	for i, ddl := range []string{schema, sessionSchema, deviceProofSchema, accountingSchema, rateGrantSchema, sessionFenceSchema, coreIdentitySchema, accountingAssignmentSchema} {
+		if err := applyMigration(ctx, tx, i+1, ddl); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func applyMigration(ctx context.Context, tx *sql.Tx, version int, ddl string) error {
+	sum := sha256.Sum256([]byte(ddl))
 	checksum := hex.EncodeToString(sum[:])
 	var previous string
-	err = tx.QueryRowContext(ctx, "SELECT checksum FROM elx_journal_migrations WHERE version=1").Scan(&previous)
+	err := tx.QueryRowContext(ctx, "SELECT checksum FROM elx_journal_migrations WHERE version=$1", version).Scan(&previous)
 	switch {
 	case err == nil:
 		if previous != checksum {
-			return errors.New("journal migration 001 checksum mismatch")
+			return fmt.Errorf("Control migration %03d checksum mismatch", version)
 		}
 	case errors.Is(err, sql.ErrNoRows):
-		for _, stmt := range strings.Split(schema, ";") {
+		for _, stmt := range strings.Split(ddl, ";") {
 			if strings.TrimSpace(stmt) == "" {
 				continue
 			}
 			if _, err := tx.ExecContext(ctx, stmt); err != nil {
-				return fmt.Errorf("journal migration 001: %w", err)
+				return fmt.Errorf("Control migration %03d: %w", version, err)
 			}
 		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO elx_journal_migrations VALUES (1,$1)", checksum); err != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO elx_journal_migrations VALUES ($1,$2)", version, checksum); err != nil {
 			return err
 		}
 	default:
 		return err
 	}
-	return tx.Commit()
+	return nil
 }
