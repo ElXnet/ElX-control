@@ -12,6 +12,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"time"
@@ -43,10 +44,19 @@ func transportTLS() (*tls.Config, error) {
 }
 
 func loadBindings() ([]policytransport.Binding, error) {
-	data, err := os.ReadFile(os.Getenv("ELX_POLICY_BINDING"))
-	if err != nil {
-		return nil, err
+	path:=os.Getenv("ELX_POLICY_BINDING")
+	if path==""{return nil,errors.New("ELX_POLICY_BINDING is required")}
+	meta,err:=os.Lstat(path)
+	if err!=nil{return nil,err}
+	if !meta.Mode().IsRegular() || meta.Mode().Perm()&0022!=0{
+		return nil,errors.New("trusted policy manifest must be a regular non-writable-by-others file")
 	}
+	file,err:=os.Open(path)
+	if err!=nil{return nil,err}
+	defer file.Close()
+	data,err:=io.ReadAll(io.LimitReader(file,1<<20+1))
+	if err!=nil{return nil,err}
+	if len(data)>1<<20{return nil,errors.New("trusted policy manifest exceeds one mebibyte")}
 	var bindings []policytransport.Binding
 	if err := json.Unmarshal(data, &bindings); err != nil {
 		var binding policytransport.Binding
