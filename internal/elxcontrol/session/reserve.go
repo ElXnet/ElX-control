@@ -128,6 +128,13 @@ func lockEligibleDevice(ctx context.Context, tx *sql.Tx, req reservationRequest)
 		return 0, err
 	}
 
+	// An old core cannot admit new sessions after rotation begins.
+	// The device remains occupied until exact signed fences release it.
+	var rotating bool
+	err=tx.QueryRowContext(ctx,`SELECT EXISTS(SELECT 1 FROM elx_core_rotations
+		WHERE node_id=$1 AND state='quiescing')`,req.NodeID).Scan(&rotating)
+	if err!=nil{return 0,err}
+	if rotating{return 0,ErrDenied}
 	var keyGeneration int64
 	var revoked bool
 	err = tx.QueryRowContext(ctx, `SELECT key_generation, revoked FROM elx_devices
