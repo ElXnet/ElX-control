@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/journal"
 )
@@ -42,15 +40,10 @@ func TestAgentRejectsInvalidIntervalBeforeConnecting(t *testing.T) {
 	}
 }
 
-func TestFUPWorkerCancelsWithoutSpinning(t *testing.T) {
-	// A nil DB only enters the query path after validating flags. A healthy
-	// worker will execute immediately, so cancellation must remain visible
-	// even before the first sweep is sent to a real database.
+func TestFUPWorkerCancelsWithoutDatabaseQuery(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_ = time.Second
-	_ = (*sql.DB)(nil)
-	if ctx.Err() != context.Canceled {
-		t.Fatal("cancelled context did not propagate")
+	if err := runFUP(ctx, nil, nil, true); err != nil {
+		t.Fatal("cancelled worker contacted the database:", err)
 	}
 }
