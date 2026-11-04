@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/management"
+	"github.com/ElXnet/ElX-control/internal/elxcontrol/lk"
 )
 
 // serveManagement intentionally has no TCP mode. Operators must protect the
