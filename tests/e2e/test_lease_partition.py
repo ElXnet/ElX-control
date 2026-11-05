@@ -27,11 +27,22 @@ class LeasedLab(Lab):
         self.lease_public = command(
             [self.control, "policy-public-key", self.lease_seed]
         ).stdout.strip()
+        # The master trusts both bindings; each node agent may request
+        # leases only for its own locally provisioned binding.
+        self.node_manifests = []
+        import json
+        shared = json.loads(self.manifest.read_text(encoding="utf-8"))
+        for i in range(2):
+            file = folder / f"node-{i}-binding.json"
+            file.write_text(json.dumps([shared[i]]), encoding="utf-8")
+            file.chmod(0o600)
+            self.node_manifests.append(file)
 
     def env(self, *, node=None, cert=None):
         env = super().env(node=node, cert=cert)
         env["ELX_CONTROL_LEASE_SEED_FILE"] = str(self.lease_seed)
         if node is not None:
+            env["ELX_POLICY_BINDING"] = str(self.node_manifests[node])
             env["ELXRAY_REQUIRE_CONTROL_LEASE"] = "1"
             env["ELXRAY_CONTROL_LEASE_PUBLIC_KEY"] = self.lease_public
             env["ELXRAY_CONTROL_LEASE_NODE_UUID"] = self.node_ids[node]
