@@ -119,6 +119,7 @@ func (c rateBarrierTestCore) ProveRateBarrier(_ context.Context,req corepolicy.R
 type proofCore struct {
 	key ed25519.PrivateKey
 	incarnation uuid.UUID
+	node uuid.UUID
 	seq int64
 	sig []byte
 }
@@ -150,6 +151,23 @@ func (c *proofCore) ReadPressureEvidence(_ context.Context, subscription, nonce 
 	}
 	return append(data,ed25519.Sign(c.key,
 		fmt.Appendf(nil,"elx-pressure-v1\n%x\n%x\n%x",nonce,subscription,data))...),nil
+}
+
+func (c *proofCore) ReadLeaseAcceptanceEvidence(_ context.Context,
+	subscription, nonce string) ([]byte, error) {
+	payload := make([]byte, 88)
+	copy(payload[:16], c.incarnation[:])
+	copy(payload[16:32], c.node[:])
+	lease := [7]uint64{
+		17, uint64(time.Now().Add(15*time.Second).Unix()),
+		40, 40, 2, 40, 40,
+	}
+	for i, value := range lease {
+		binary.BigEndian.PutUint64(payload[32+i*8:40+i*8], value)
+	}
+	transcript := fmt.Appendf(nil, "elx-lease-accept-v1\\n%x\\n%x\\n%x",
+		nonce, subscription, payload)
+	return append(payload, ed25519.Sign(c.key, transcript)...), nil
 }
 
 type fakeProfileDrainer struct { key ed25519.PrivateKey }
@@ -370,11 +388,11 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 	_,err=db.ExecContext(ctx,`UPDATE elx_entitlements SET enabled=true WHERE id=$1`,entitlement)
 	if err!=nil {t.Fatal(err)}
 
-	goodCore:=&proofCore{key:key,incarnation:binding.Incarnation}
+	goodCore:=&proofCore{key:key,incarnation:binding.Incarnation,node:binding.NodeID}
 	badCoreKeyPub,badCoreKey,err:=ed25519.GenerateKey(rand.Reader)
 	_ = badCoreKeyPub
 	if err != nil { t.Fatal(err) }
-	badCore:=&proofCore{key:badCoreKey,incarnation:binding.Incarnation}
+	badCore:=&proofCore{key:badCoreKey,incarnation:binding.Incarnation,node:binding.NodeID}
 	if _,err:=PollOne(ctx,foreign,goodCore,binding);status.Code(err)!=codes.InvalidArgument {
 		t.Fatalf("foreign node identity not rejected: %v",err)
 	}
@@ -395,6 +413,17 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 	if capturedSeq!=2 || reportedUp!=40 || reportedDown!=40 {
 		t.Fatalf("signed limiter pressure was not bound to rate grant: seq=%d rate=%d/%d",
 			capturedSeq,reportedUp,reportedDown)
+	}
+	var acceptedPressureSeq, acceptedLeaseSeq int64
+	if err:=db.QueryRowContext(ctx,`SELECT pressure_sequence,lease_sequence
+		FROM elx_rate_lease_acceptances
+		WHERE node_id=$1 AND resource_id=$2`,binding.NodeID,leaseResource).
+		Scan(&acceptedPressureSeq,&acceptedLeaseSeq);err!=nil {
+		t.Fatalf("authenticated mTLS node did not relay core-accepted lease: %v",err)
+	}
+	if acceptedPressureSeq!=2 || acceptedLeaseSeq!=17 {
+		t.Fatalf("lease acceptance not pinned to signed pressure: pressure=%d lease=%d",
+			acceptedPressureSeq,acceptedLeaseSeq)
 	}
 	// Replaying signed bytes without a new challenge can never charge again.
 	replay,_:=json.Marshal(submitRequest{Binding:binding,Evidence:goodCore.sig})
