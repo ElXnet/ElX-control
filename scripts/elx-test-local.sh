@@ -79,5 +79,7 @@ export TMPDIR="$work"
     bash scripts/elx-policy-smoke.sh
     python3 scripts/elx-vless-stop-smoke.py
     python3 tests/e2e/test_multinode.py
+    python3 tests/e2e/test_rate_partition.py
+    python3 tests/e2e/test_lease_partition.py
 )
 echo 'PASS: ElX local suite'
