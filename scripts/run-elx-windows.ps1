@@ -80,7 +80,26 @@ if ($linuxControl.Contains("'")) { throw 'Workspace path cannot contain an apost
 # Pass the Linux script as an argv path instead of a shell -c string.
 # This avoids Windows PowerShell quote mangling with embedded Bash commands.
 $suite = if ($Full) { 'elx-test-all.sh' } else { 'elx-test-local.sh' }
-Write-Host "Running ElX tests ($suite) via WSL in: $linuxControl" -ForegroundColor Cyan
-& wsl.exe --distribution $Distro --exec bash "$linuxControl/scripts/$suite"
-if ($LASTEXITCODE -ne 0) { throw "ElX tests failed (exit code $LASTEXITCODE); inspect the WSL output above." }
+# Windows PowerShell 5.1 transcription captures the complete console output,
+# including WSL stdout/stderr, without buffering the test process or rewriting
+# its exit status. Logs live OUTSIDE all three Git checkouts.
+$logDirectory = Join-Path $Workspace 'test-logs'
+New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
+$mode = if ($Full) { 'full' } else { 'integration' }
+$stamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
+$logFile = Join-Path $logDirectory "ElX-$mode-$stamp.txt"
+Write-Host "Saving test output to: $logFile" -ForegroundColor Cyan
+$exitCode = 1
+Start-Transcript -LiteralPath $logFile -ErrorAction Stop | Out-Null
+try {
+    Write-Host "Running ElX tests ($suite) via WSL in: $linuxControl" -ForegroundColor Cyan
+    & wsl.exe --distribution $Distro --exec bash "$linuxControl/scripts/$suite"
+    $exitCode = $LASTEXITCODE
+} finally {
+    Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
+    Write-Host "Full test log: $logFile" -ForegroundColor Cyan
+}
+if ($exitCode -ne 0) {
+    throw "ElX tests failed (exit code $exitCode). Full output saved to: $logFile"
+}
 Write-Host "PASS: ElX Windows/WSL suite ($suite)" -ForegroundColor Green
