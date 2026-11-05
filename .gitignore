@@ -1,0 +1,11 @@
+# Python imports from tests/e2e create bytecode caches. These files must not
+# block the Windows three-repository test runner's clean-worktree preflight.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local test/tool artifacts (never commit generated results or secrets).
+.coverage
+coverage.xml
+*.test
+*.prof
