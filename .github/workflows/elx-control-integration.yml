@@ -39,6 +39,25 @@ jobs:
       - name: Check separation of Control and UI responsibilities
         run: python3 ElX-control/scripts/check-repository-boundary.py "$GITHUB_WORKSPACE"
 
+  windows-launcher-syntax:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Control Windows runner
+        uses: actions/checkout@v5
+      - name: Parse Windows PowerShell 5.1 script without executing it
+        shell: powershell
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+              (Join-Path $env:GITHUB_WORKSPACE 'scripts/run-elx-windows.ps1'),
+              [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+              $errors | Format-List
+              throw "Windows test launcher contains PowerShell syntax errors"
+          }
+
   local-suite:
     runs-on: ubuntu-latest
     timeout-minutes: 45
