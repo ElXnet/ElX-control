@@ -1,0 +1,51 @@
+name: ElX three-repository full verification
+
+# Expensive cross-repository gate; trigger manually when shipping a release.
+# The ordinary Control PR workflow runs the core integration/E2E suite.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  all-repositories:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout ElX-control
+        uses: actions/checkout@v5
+        with:
+          path: ElX-control
+      - name: Checkout ElXray
+        uses: actions/checkout@v5
+        with:
+          repository: ElXnet/ElXray
+          ref: main
+          path: ElXray
+      - name: Checkout ElX-ui
+        uses: actions/checkout@v5
+        with:
+          repository: ElXnet/ElX-ui
+          ref: main
+          path: ElX-ui
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: ElX-control/go.mod
+          cache: false
+      - name: Set up Node for ElX-ui
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: Install pinned panel golangci-lint
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Print revision triple
+        run: |
+          git -C ElX-control rev-parse HEAD
+          git -C ElXray rev-parse HEAD
+          git -C ElX-ui rev-parse HEAD
+      - name: Run full three-repository Go, frontend, security and network E2E suite
+        run: bash ElX-control/scripts/elx-test-all.sh
