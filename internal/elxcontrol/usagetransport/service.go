@@ -25,6 +25,7 @@ type submitRequest struct {
 	Binding accounting.RemoteBinding
 	Evidence []byte
 	PressureEvidence []byte `json:",omitempty"`
+	LeaseAcceptance []byte `json:",omitempty"`
 }
 
 type receiver struct{ db *sql.DB }
@@ -90,7 +91,10 @@ func (s *receiver) submit(ctx context.Context, in *wrapperspb.BytesValue) (*wrap
 		return nil, status.Error(codes.InvalidArgument, "invalid usage evidence request")
 	}
 	var receipt accounting.Receipt
-	if len(input.PressureEvidence) != 0 {
+	if len(input.LeaseAcceptance) != 0 {
+		receipt, err = accounting.SubmitRemoteTelemetryWithLease(ctx, s.db, id,
+			input.Binding, input.Evidence, input.PressureEvidence, input.LeaseAcceptance)
+	} else if len(input.PressureEvidence) != 0 {
 		receipt, err = accounting.SubmitRemoteTelemetry(ctx, s.db, id,
 			input.Binding, input.Evidence, input.PressureEvidence)
 	} else {
@@ -143,6 +147,13 @@ type OptionalPressureReader interface {
 	ReadPressureEvidence(context.Context, string, string) ([]byte, error)
 }
 
+// OptionalLeaseAcceptanceReader returns the core's nonce-bound proof of a
+// currently enforcing Control lease. A missing or unreachable extension may
+// not make an unsigned lease appear healthy; usage/FUP still works.
+type OptionalLeaseAcceptanceReader interface {
+	ReadLeaseAcceptanceEvidence(context.Context, string, string) ([]byte, error)
+}
+
 // EvidenceReader is the strictly local ElXray API. The remote caller carries
 // opaque core-signed bytes; only Control authorizes and verifies the claim.
 type EvidenceReader interface {
@@ -173,8 +184,18 @@ func PollOne(ctx context.Context, conn grpc.ClientConnInterface, core EvidenceRe
 			pressure = signed
 		}
 	}
+	var acceptance []byte
+	if len(pressure) != 0 {
+		if reader, supported := core.(OptionalLeaseAcceptanceReader); supported {
+			if signed, leaseErr := reader.ReadLeaseAcceptanceEvidence(ctx,
+				challenge.Subscription, challenge.Nonce); leaseErr == nil {
+				acceptance = signed
+			}
+		}
+	}
 	payload, err := json.Marshal(submitRequest{
-		Binding: binding, Evidence: evidence, PressureEvidence: pressure,
+		Binding: binding, Evidence: evidence,
+		PressureEvidence: pressure, LeaseAcceptance: acceptance,
 	})
 	if err != nil { return accounting.Receipt{}, err }
 	var response wrapperspb.BytesValue
