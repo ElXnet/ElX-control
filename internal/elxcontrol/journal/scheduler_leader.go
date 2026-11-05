@@ -55,7 +55,7 @@ func AcquireSchedulerLease(ctx context.Context, db *sql.DB, entitlement string,
 	var enabled bool
 	var validUntil time.Time
 	err = tx.QueryRowContext(ctx,`SELECT enabled,valid_until,clock_timestamp()
-		FROM elx_entitlements WHERE id=$1`,entitlement).Scan(&enabled,&validUntil,&now)
+		FROM elx_entitlements WHERE id=$1 FOR SHARE`,entitlement).Scan(&enabled,&validUntil,&now)
 	if err != nil {return result,err}
 	if !enabled || !validUntil.After(now) {return result,ErrInactiveRateEntitlement}
 	// ON CONFLICT DO NOTHING does not steal a live leader. The surrounding
@@ -105,7 +105,7 @@ func RenewSchedulerLease(ctx context.Context, db *sql.DB, lease SchedulerLease, 
 	var enabled bool
 	var validUntil time.Time
 	if err=tx.QueryRowContext(ctx,`SELECT enabled,valid_until FROM elx_entitlements
-		WHERE id=$1`,lease.EntitlementID).Scan(&enabled,&validUntil);err!=nil{return SchedulerLease{},err}
+		WHERE id=$1 FOR SHARE`,lease.EntitlementID).Scan(&enabled,&validUntil);err!=nil{return SchedulerLease{},err}
 	if !enabled || !validUntil.After(now) {return SchedulerLease{},ErrInactiveRateEntitlement}
 	expires:=now.Add(ttl)
 	_,err=tx.ExecContext(ctx,`UPDATE elx_rate_scheduler_leaders SET
