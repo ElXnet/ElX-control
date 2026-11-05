@@ -78,8 +78,8 @@ echo "ElX-ui: $(git -C "$panel" rev-parse HEAD)"
 step "Control + ElXray integration and live multi-node E2E" \
     bash "$root/scripts/elx-test-local.sh"
 
-step "ElXray entire Go test tree" \
-    bash -c 'cd "$1" && go test -count=1 -timeout 30m ./...' bash "$core"
+step "ElXray Go tests with verified geodata and explicit network policy" \
+    bash "$root/scripts/elxray-full-go-tests.sh" "$core"
 step "ElXray full go vet" \
     bash -c 'cd "$1" && go vet ./...' bash "$core"
 step "ElXray Python fixture regressions" \
