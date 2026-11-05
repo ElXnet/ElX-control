@@ -9,6 +9,29 @@ for go_bin_dir in /snap/bin /usr/local/go/bin; do
     fi
 done
 
+# wsl.exe --exec bash does not read an interactive ~/.bashrc. In particular,
+# nvm-installed Node may be invisible or its default version may be too old.
+nvm_init="${NVM_DIR:-$HOME/.nvm}/nvm.sh"
+if [[ -s "$nvm_init" ]]; then
+    export NVM_DIR=$(dirname -- "$nvm_init")
+    set +u
+    # shellcheck disable=SC1090
+    . "$nvm_init" --no-use
+    set -u
+    if ! command -v node >/dev/null || (( $(node -p 'Number(process.versions.node.split(".")[0])') < 26 )); then
+        if ! nvm use --silent 26 >/dev/null 2>&1; then
+            echo 'Node.js >=26 is required; install it inside WSL using nvm install 26.' >&2
+            exit 1
+        fi
+    fi
+fi
+if command -v go >/dev/null; then
+    go_tools="$(go env GOPATH)/bin"
+    if [[ -x "$go_tools/golangci-lint" && ":$PATH:" != *":$go_tools:"* ]]; then
+        export PATH="$go_tools:$PATH"
+    fi
+fi
+
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 core=$(cd -- "${ELXRAY_SOURCE:-$root/../ElXray}" && pwd)
 panel=$(cd -- "${ELX_UI_SOURCE:-$root/../ElX-ui}" && pwd)
