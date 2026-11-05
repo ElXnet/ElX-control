@@ -98,7 +98,7 @@ $header = @(
     "Runner: $suite"
     ""
 )
-$header | Set-Content -LiteralPath $logFile -Encoding UTF8
+$header | Set-Content -LiteralPath $logFile -Encoding Unicode
 $exitCode = 1
 $previousErrorAction = $ErrorActionPreference
 try {
@@ -107,7 +107,7 @@ try {
     $ErrorActionPreference = 'Continue'
     & wsl.exe --distribution $Distro --exec bash "$linuxControl/scripts/$suite" 2>&1 |
         ForEach-Object { $_.ToString() } |
-        Tee-Object -LiteralPath $logFile -Append
+        Tee-Object -FilePath $logFile -Append
     $exitCode = $LASTEXITCODE
 } finally {
     $ErrorActionPreference = $previousErrorAction
