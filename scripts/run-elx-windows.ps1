@@ -80,23 +80,37 @@ if ($linuxControl.Contains("'")) { throw 'Workspace path cannot contain an apost
 # Pass the Linux script as an argv path instead of a shell -c string.
 # This avoids Windows PowerShell quote mangling with embedded Bash commands.
 $suite = if ($Full) { 'elx-test-all.sh' } else { 'elx-test-local.sh' }
-# Windows PowerShell 5.1 transcription captures the complete console output,
-# including WSL stdout/stderr, without buffering the test process or rewriting
-# its exit status. Logs live OUTSIDE all three Git checkouts.
+# Start-Transcript on Windows PowerShell 5.1 does not reliably capture
+# stdout from native WSL programs. Stream both native output channels
+# directly through Tee-Object, preserving the WSL exit code.
+# Store logs OUTSIDE all Git checkouts so git pull remains safe.
 $logDirectory = Join-Path $Workspace 'test-logs'
 New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
 $mode = if ($Full) { 'full' } else { 'integration' }
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
 $logFile = Join-Path $logDirectory "ElX-$mode-$stamp.txt"
-Write-Host "Saving test output to: $logFile" -ForegroundColor Cyan
+Write-Host "Saving complete test output to: $logFile" -ForegroundColor Cyan
+$header = @(
+    "ElX test run: $(Get-Date -Format o)"
+    "Mode: $mode"
+    "WSL distribution: $Distro"
+    "Control checkout: $linuxControl"
+    "Runner: $suite"
+    ""
+)
+$header | Set-Content -LiteralPath $logFile -Encoding UTF8
 $exitCode = 1
-Start-Transcript -LiteralPath $logFile -ErrorAction Stop | Out-Null
+$previousErrorAction = $ErrorActionPreference
 try {
-    Write-Host "Running ElX tests ($suite) via WSL in: $linuxControl" -ForegroundColor Cyan
-    & wsl.exe --distribution $Distro --exec bash "$linuxControl/scripts/$suite"
+    # Native stderr is represented as ErrorRecord in Windows PowerShell 5.1;
+    # Continue avoids promoting diagnostic output to terminating exceptions.
+    $ErrorActionPreference = 'Continue'
+    & wsl.exe --distribution $Distro --exec bash "$linuxControl/scripts/$suite" 2>&1 |
+        ForEach-Object { $_.ToString() } |
+        Tee-Object -LiteralPath $logFile -Append
     $exitCode = $LASTEXITCODE
 } finally {
-    Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
+    $ErrorActionPreference = $previousErrorAction
     Write-Host "Full test log: $logFile" -ForegroundColor Cyan
 }
 if ($exitCode -ne 0) {
