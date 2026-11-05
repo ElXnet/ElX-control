@@ -8,6 +8,7 @@ on:
       - "internal/elxcontrol/**"
       - "scripts/elx-*.sh"
       - "scripts/elx-*.py"
+      - "tests/e2e/**"
       - "scripts/run-elx-windows.ps1"
       - "scripts/check-repository-boundary.py"
       - ".github/workflows/elx-control-integration.yml"
