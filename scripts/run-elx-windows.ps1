@@ -34,8 +34,13 @@ foreach ($name in $branches.Keys) {
         if (Test-Path $dir) { throw "$dir already exists but is not a Git repository" }
         Invoke-Git -Arguments @('clone', '--branch', $branch, '--single-branch', "https://github.com/ElXnet/$name.git", $dir)
     } else {
-        $dirty = & git -C $dir status --porcelain
-        if ($LASTEXITCODE -ne 0 -or $dirty) { throw "$dir has local changes; commit or stash them first" }
+        $dirty = @(& git -C $dir status --porcelain --untracked-files=normal)
+        if ($LASTEXITCODE -ne 0) { throw "Could not read git status for $dir" }
+        if ($dirty.Count -gt 0) {
+            Write-Host "Local changes in ${dir}:" -ForegroundColor Yellow
+            $dirty | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
+            throw "$dir has local changes; commit or stash them first"
+        }
         Invoke-Git -Arguments @('-C', $dir, 'fetch', 'origin', $branch)
         $current = (& git -C $dir branch --show-current).Trim()
         if ($current -ne $branch) { throw "$dir is on branch '$current', expected '$branch'. Switch branches manually." }
