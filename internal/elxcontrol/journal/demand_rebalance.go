@@ -129,7 +129,7 @@ func rebalanceDemand(ctx context.Context, db *sql.DB, entitlement string,
 	var enabled bool
 	var validUntil time.Time
 	if err = tx.QueryRowContext(ctx, `SELECT enabled,valid_until FROM elx_entitlements
-		WHERE id=$1`, entitlement).Scan(&enabled, &validUntil); err != nil {
+		WHERE id=$1 FOR SHARE`, entitlement).Scan(&enabled, &validUntil); err != nil {
 		return out, err
 	}
 	if !enabled || !validUntil.After(now) {
