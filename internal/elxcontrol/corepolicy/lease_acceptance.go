@@ -109,3 +109,20 @@ func VerifyLeaseAcceptance(subscription, challenge string, key ed25519.PublicKey
 	}
 	return out,nil
 }
+
+// ValidateAcceptedLeaseBinding is the second trust check after verifying the
+// core signature. It binds this acceptance to the actual mTLS node and core,
+// the freshly signed applied policy and the exact journal grant. Use it only
+// after reading those identities from authoritative Control state.
+func ValidateAcceptedLeaseBinding(a AcceptedLease, authenticatedNode, pinnedCore uuid.UUID,
+	policyRevision uint64, committedUp, committedDown int64, now time.Time) error {
+	if authenticatedNode==uuid.Nil || pinnedCore==uuid.Nil ||
+		a.NodeID!=authenticatedNode || a.Incarnation!=pinnedCore ||
+		a.Revision!=policyRevision ||
+		a.AppliedUp!=committedUp || a.AppliedDown!=committedDown ||
+		a.CeilingUp<committedUp || a.CeilingDown<committedDown ||
+		!a.ExpiresAt.After(now.Add(2*time.Second)) {
+		return ErrLeaseNotActive
+	}
+	return nil
+}
