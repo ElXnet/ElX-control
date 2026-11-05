@@ -194,6 +194,14 @@ func CompleteCoreRotation(ctx context.Context,db *sql.DB,id string)(CoreRotation
   if err!=nil{return out,err}
   if covered!=schedules{return out,ErrRotation}
  }
+ // Discard the retiring core's allocator-pressure high-watermarks only
+ // AFTER all rate grants have been cryptographically fenced, every session
+ // released and final signed usage accounted. New incarnations must produce
+ // freshly pinned samples; old bytes cannot be mistaken for a new core's
+ // initial demand.
+ _,err=tx.ExecContext(ctx,`DELETE FROM elx_rate_pressure_samples
+  WHERE node_id=$1 AND incarnation=$2`,out.NodeID,out.OldIncarnation)
+ if err!=nil{return out,err}
  // Archive signed accounting WITHOUT resetting periods or watermarks.
  // Sources from the retired incarnation can never be polled again.
  _,err=tx.ExecContext(ctx,`UPDATE elx_accounting_streams SET closed=true

@@ -135,6 +135,23 @@ func (c *proofCore) ReadUsageEvidence(_ context.Context, subscription, nonce str
 	return c.sig,nil
 }
 
+// This proves the existing authenticated accounting node relay carries
+// both wire formats under a single Control-issued challenge.
+func (c *proofCore) ReadPressureEvidence(_ context.Context, subscription, nonce string) ([]byte,error) {
+	c.seq++
+	data:=make([]byte,120)
+	copy(data[:16],c.incarnation[:])
+	values:=[13]uint64{
+		uint64(c.seq),uint64(time.Now().UTC().UnixNano()),2,40,40,
+		40,1,1000,0,70,2,2000,1,
+	}
+	for i,value:=range values{
+		binary.BigEndian.PutUint64(data[16+i*8:24+i*8],value)
+	}
+	return append(data,ed25519.Sign(c.key,
+		fmt.Appendf(nil,"elx-pressure-v1\n%x\n%x\n%x",nonce,subscription,data))...),nil
+}
+
 type fakeProfileDrainer struct { key ed25519.PrivateKey }
 func (d fakeProfileDrainer) DrainProfile(_ context.Context, f session.Fence,
 	pinned ed25519.PublicKey) ([]byte,error) {
@@ -368,6 +385,16 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	if !receipt.Crossed || receipt.Sequence!=1 {
 		t.Fatalf("signed usage was not counted: %+v",receipt)
+	}
+	var capturedSeq,reportedUp,reportedDown int64
+	if err:=db.QueryRowContext(ctx,`SELECT sequence,policy_up,policy_down
+		FROM elx_rate_pressure_samples WHERE node_id=$1 AND resource_id=$2`,
+		binding.NodeID,leaseResource).Scan(&capturedSeq,&reportedUp,&reportedDown);err!=nil {
+		t.Fatalf("authenticated node did not relay pressure: %v",err)
+	}
+	if capturedSeq!=2 || reportedUp!=40 || reportedDown!=40 {
+		t.Fatalf("signed limiter pressure was not bound to rate grant: seq=%d rate=%d/%d",
+			capturedSeq,reportedUp,reportedDown)
 	}
 	// Replaying signed bytes without a new challenge can never charge again.
 	replay,_:=json.Marshal(submitRequest{Binding:binding,Evidence:goodCore.sig})

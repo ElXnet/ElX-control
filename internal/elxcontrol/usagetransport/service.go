@@ -24,6 +24,7 @@ const serviceName = "elx.node.v1.SignedAccounting"
 type submitRequest struct {
 	Binding accounting.RemoteBinding
 	Evidence []byte
+	PressureEvidence []byte `json:",omitempty"`
 }
 
 type receiver struct{ db *sql.DB }
@@ -88,7 +89,13 @@ func (s *receiver) submit(ctx context.Context, in *wrapperspb.BytesValue) (*wrap
 	if json.Unmarshal(in.GetValue(), &input) != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid usage evidence request")
 	}
-	receipt, err := accounting.SubmitRemoteUsage(ctx, s.db, id, input.Binding, input.Evidence)
+	var receipt accounting.Receipt
+	if len(input.PressureEvidence) != 0 {
+		receipt, err = accounting.SubmitRemoteTelemetry(ctx, s.db, id,
+			input.Binding, input.Evidence, input.PressureEvidence)
+	} else {
+		receipt, err = accounting.SubmitRemoteUsage(ctx, s.db, id, input.Binding, input.Evidence)
+	}
 	if err != nil { return nil, transportError(err) }
 	payload, err := json.Marshal(receipt)
 	if err != nil { return nil, status.Error(codes.Internal, "receipt serialization failed") }
@@ -127,6 +134,15 @@ func handler[Req, Resp any](method string, call func(*receiver, context.Context,
 	}
 }
 
+// OptionalPressureReader is supported by updated ElXray cores. An older core
+// may continue submitting signed FUP accounting without supplying pressure;
+// this NEVER produces a new trusted demand observation. On pressure-read
+// failure, the agent prioritizes billable usage, while the Control allocator
+// treats the missing demand evidence as frozen.
+type OptionalPressureReader interface {
+	ReadPressureEvidence(context.Context, string, string) ([]byte, error)
+}
+
 // EvidenceReader is the strictly local ElXray API. The remote caller carries
 // opaque core-signed bytes; only Control authorizes and verifies the claim.
 type EvidenceReader interface {
@@ -150,7 +166,16 @@ func PollOne(ctx context.Context, conn grpc.ClientConnInterface, core EvidenceRe
 	}
 	evidence, err := core.ReadUsageEvidence(ctx, challenge.Subscription, challenge.Nonce)
 	if err != nil { return accounting.Receipt{}, err }
-	payload, err := json.Marshal(submitRequest{Binding:binding, Evidence:evidence})
+	var pressure []byte
+	if reader, supported := core.(OptionalPressureReader); supported {
+		if signed, pressureErr := reader.ReadPressureEvidence(ctx,
+			challenge.Subscription, challenge.Nonce); pressureErr == nil {
+			pressure = signed
+		}
+	}
+	payload, err := json.Marshal(submitRequest{
+		Binding: binding, Evidence: evidence, PressureEvidence: pressure,
+	})
 	if err != nil { return accounting.Receipt{}, err }
 	var response wrapperspb.BytesValue
 	if err := conn.Invoke(ctx, "/"+serviceName+"/Submit", wrapperspb.Bytes(payload), &response); err != nil {
