@@ -3,24 +3,24 @@
 The checkout layout is fixed and explicit:
 
 ```
-D:\\ElX-test\\
-  ElX-control\\
-  ElXray\\
-  ElX-ui\\
+D:\ElX-test\
+  ElX-control\
+  ElXray\
+  ElX-ui\
 ```
 
 From PowerShell:
 
 ```powershell
-cd D:\\ElX-test\\ElX-control
+cd D:\ElX-test\ElX-control
 
 # Update all three clean main branches and run the PostgreSQL-backed
 # Control + ElXray race/unit/integration and live two-node VLESS tests.
-powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\run-elx-windows.ps1 -Workspace "D:\\ElX-test" -Distro Ubuntu
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-elx-windows.ps1 -Workspace "D:\ElX-test" -Distro Ubuntu
 
 # Full local verification, including ElXray's entire Go tree and runtime
 # benchmark, and ElX-ui's full make verify / race / node-e2e / vulncheck.
-powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\run-elx-windows.ps1 -Workspace "D:\\ElX-test" -Distro Ubuntu -Full
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-elx-windows.ps1 -Workspace "D:\ElX-test" -Distro Ubuntu -Full
 ```
 
 The `-Full` option needs WSL Ubuntu, Docker Desktop WSL integration, Go,
