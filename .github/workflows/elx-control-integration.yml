@@ -69,6 +69,9 @@ jobs:
           if ($LASTEXITCODE -ne 7) {
               throw "Native process exit code was lost by the streaming pipeline"
           }
+          # The nonzero result was intentional; clear it AFTER assertion so
+          # actions' PowerShell wrapper does not fail an otherwise green job.
+          $global:LASTEXITCODE = 0
           $output = Get-Content -LiteralPath $log -Raw
           foreach ($item in @('test-log-header', 'NATIVE_STDOUT', 'NATIVE_STDERR')) {
               if (-not $output.Contains($item)) {
