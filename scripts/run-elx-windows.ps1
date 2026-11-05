@@ -14,9 +14,9 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $branches = [ordered]@{
-    'ElX-ui'      = 'feat/elx-management-stage3'
-    'ElXray'      = 'restrict-runtime-unlimited'
-    'ElX-control' = 'feat/elx-management-stage3'
+    'ElX-ui'      = 'chore/ci-and-main-consolidation'
+    'ElXray'      = 'feat/policy-runtime-fencing'
+    'ElX-control' = 'chore/standardize-main-ci'
 }
 function Invoke-Git {
     param([string[]]$Arguments)

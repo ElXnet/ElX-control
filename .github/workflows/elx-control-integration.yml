@@ -2,7 +2,7 @@ name: ElX Control integration
 
 on:
   push:
-    branches: [feat/multinode-policy, feat/elx-management-stage3]
+    branches: [main]
     paths:
       - "cmd/elx-control/**"
       - "internal/elxcontrol/**"
@@ -14,7 +14,7 @@ on:
       - "go.mod"
       - "go.sum"
   pull_request:
-    branches: [feat/multinode-policy, main]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: ElXnet/ElX-ui
-          ref: feat/elx-management-stage3
+          ref: chore/ci-and-main-consolidation
           path: ElX-ui
       - name: Check separation of Control and UI responsibilities
         run: python3 ElX-control/scripts/check-repository-boundary.py "$GITHUB_WORKSPACE"
@@ -64,7 +64,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: ElXnet/ElXray
-          ref: restrict-runtime-unlimited
+          ref: feat/policy-runtime-fencing
           path: ElXray
       - name: Set up Go
         uses: actions/setup-go@v6
