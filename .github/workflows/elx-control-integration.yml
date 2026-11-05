@@ -58,6 +58,30 @@ jobs:
               throw "Windows test launcher contains PowerShell syntax errors"
           }
 
+  elxray-go-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout ElX-control test harness
+        uses: actions/checkout@v5
+        with:
+          path: ElX-control
+      - name: Checkout ElXray
+        uses: actions/checkout@v5
+        with:
+          repository: ElXnet/ElXray
+          ref: main
+          path: ElXray
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: ElXray/go.mod
+          cache: false
+      - name: Validate reproducible full Go gate (fixtures + offline classification)
+        run: |
+          bash -n ElX-control/scripts/elxray-full-go-tests.sh
+          bash ElX-control/scripts/elxray-full-go-tests.sh ElXray
+
   local-suite:
     runs-on: ubuntu-latest
     timeout-minutes: 45
