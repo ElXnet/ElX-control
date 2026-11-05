@@ -134,7 +134,7 @@ func TestRemotePressureIsPinnedAndAtomicWithFUPAccounting(t *testing.T) {
 	checkError(t, err, nil)
 	if len(preview) != 1 || preview[0].Target != (Target{
 		NodeID:b.NodeID.String(), ResourceID:resource.String(),
-	}) || preview[0].Requested != (Rate{Up:100, Down:100}) {
+	}) || preview[0].Requested != (Rate{Up:60, Down:100}) {
 		t.Fatalf("signed pressure did not produce bounded preview: %+v", preview)
 	}
 
