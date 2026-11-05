@@ -247,7 +247,7 @@ class Lab:
     def await_revision(self, node, revision, *, disabled=False):
         def check():
             value = self.get_policy(node)
-            return value if int(value["revision"]) == revision and bool(value["disabled"]) == disabled else None
+            return value if int(value["revision"]) == revision and bool(value.get("disabled", False)) == disabled else None
         return wait_for(f"node {node} policy revision={revision} disabled={disabled}",
                         check, self.processes)
 
@@ -322,9 +322,17 @@ def test_multinode():
             with lab.connect(0) as flow0, lab.connect(1) as flow1:
                 lab.ping(flow0, b"first-node")
                 lab.ping(flow1, b"second-node")
-                initial = [lab.usage(i) for i in range(2)]
+                # Signed transfer counters may settle on connection close.
+                # Keep the two established flows alive, and complete separate
+                # short flows before asserting the observed traffic.
                 for i in range(2):
-                    require(initial[i]["UpBytes"] > 0, "signed usage missing from node")
+                    with lab.connect(i) as short_flow:
+                        lab.ping(short_flow, f"signed-usage-node-{i}".encode())
+                for i in range(2):
+                    def signed_bytes(node=i):
+                        proof = lab.usage(node)
+                        return proof if proof["UpBytes"] > 0 and proof["DownBytes"] > 0 else None
+                    wait_for(f"signed usage on node {i}", signed_bytes, lab.processes)
                     other = lab.keys[1 - i]
                     lab.usage(i, key=other, success=False)
 
