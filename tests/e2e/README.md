@@ -107,14 +107,29 @@ fence, and races two replacement devices for the one released slot.
 - The signed-slot test exercises Control admission and ownership, not
   the integration of a running remote device's VPN handshake with
   `ReserveWithProof`. No **physical two-PC acceptance** is asserted.
-- The outage test runs **without mandatory Control leases**: established
-  VPN flows deliberately remain connected while Control is unreachable.
-  **Fail-closed on a revoked subscription when Control is partitioned
-  is not proven here.** Test mandatory signed lease expiry/renewal
-  independently before production.
+- The ordinary `test_rate_partition.py` outage test runs **without mandatory Control leases**: established VPN flows deliberately remain connected while Control is unreachable. A **separate** `test_lease_partition.py` provisions actual PostgreSQL-backed grants for both cores and turns on mandatory signed Control leases. It must demonstrate both nodes deny traffic before a valid ticket, expire and close idle flows after a Control outage, deny new payload, and accept only fresh VPN connections after signed renewal. These are different and complementary modes.
 - A non-responsive PostgreSQL listener is a control-plane startup
   failure, not a real cluster split-brain / packet-loss test. Repeated
   leader election and stale epoch rejection are checked in dedicated
   journal tests; full network partition and takeover remain open.
 
 All these remaining gates must stay visible in the release report.
+
+### Mandatory signed lease partition E2E
+
+`test_lease_partition.py` starts the same two-core lab with
+`ELXRAY_REQUIRE_CONTROL_LEASE=1`, configures separate per-node mTLS
+manifests, creates a private Control lease-signing seed and uses the
+**test-only** Go fixture `tests/e2e/seed_lease.go` to install two
+PostgreSQL rate grants with exact pinned core incarnations and signing
+keys. Control then issues real fifteen-second Ed25519 leases to the
+autonomous agents. The test deliberately drops the Control listener
+for eighteen seconds, asserts that both existing idle VLESS flows are
+terminated and new traffic rejected, then restarts the *same* signing
+authority and requires new VPN handshakes to succeed.
+
+This test proves signed lease expiry on a local-loopback service outage;
+it does not exercise physical WAN loss, asymmetric packet loss,
+multi-master replication, or a database failover from one primary to
+another. The offline device and FUP admission behavior still requires
+a multi-client deployment acceptance run.
