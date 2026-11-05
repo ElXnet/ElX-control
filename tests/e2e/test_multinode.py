@@ -361,6 +361,28 @@ def test_multinode():
                 lab.ping(flow0, b"live-after-reduction-0")
                 lab.ping(flow1, b"live-after-reduction-1")
                 print("PASS: two live VLESS nodes; signed traffic; rates changed without disconnect")
+                # Simultaneous independent client connections exercise both
+                # cores while policy revisions are live. This is concurrency
+                # acceptance, NOT a proof of purchased global rate limits.
+                def transfer_many(node, failures):
+                    try:
+                        for index in range(4):
+                            with lab.connect(node) as parallel:
+                                payload = (f"node-{node}-client-{index}-".encode() * 64)
+                                lab.ping(parallel, payload)
+                    except BaseException as exc:
+                        failures.append((node, str(exc)))
+                failures = []
+                workers = [threading.Thread(target=transfer_many, args=(node, failures))
+                           for node in range(2) for _ in range(3)]
+                for worker in workers:
+                    worker.start()
+                for worker in workers:
+                    worker.join(timeout=15)
+                require(not any(worker.is_alive() for worker in workers),
+                        "parallel VLESS transfers stalled")
+                require(not failures, f"parallel VLESS transfer failures: {failures}")
+                print("PASS: concurrent VLESS client flows across two live nodes")
 
                 lab.enqueue(0, 1, 150000, 160000, disabled=True)
                 lab.await_revision(0, 3, disabled=True)
@@ -389,6 +411,29 @@ def test_multinode():
             require(lab.usage(0)["Incarnation"] != before,
                     "core restart reused old signed incarnation")
             print("PASS: durable disabled policy and new incarnation after core restart")
+
+            # Simulate a Control-to-agent network partition by removing only
+            # the Control listener. Both live VPN cores must keep forwarding
+            # under their last accepted policies; no agent may invent a new
+            # revision or grant while disconnected.
+            with lab.connect(1) as partition_flow:
+                lab.ping(partition_flow, b"before-control-partition")
+                lab.stop("control")
+                lab.ping(partition_flow, b"through-control-partition")
+                require(int(lab.get_policy(1)["revision"]) == 2,
+                        "agent changed policy while Control was unreachable")
+                # Queue an update durably while the transport is unavailable.
+                lab.enqueue(1, 1, 120000, 130000)
+                time.sleep(0.7)
+                require(int(lab.get_policy(1)["revision"]) == 2,
+                        "offline agent applied a queued policy without Control")
+                lab.spawn("control", [lab.control, "serve-policy"],
+                          env=lab.env(cert="control"))
+                partition_policy = lab.await_revision(1, 3)
+                require(int(partition_policy["downlinkBps"]) == 130000,
+                        "reconnected agent failed to apply durable queued update")
+                lab.ping(partition_flow, b"after-control-reconnect")
+            print("PASS: Control-agent partition, no speculative grants, queued recovery")
 
             # Surviving Control restarts must preserve journal revisions.
             lab.stop("control")

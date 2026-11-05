@@ -53,7 +53,11 @@ Assertions:
    prevents new payload, and leaves the second node connected.
 6. Restarting the disabled core retains its disabled revision and
    generates a new signed incarnation.
-7. Restarting Control does not lose the command journal; re-enabling the
+7. Concurrent independent VLESS client connections pass through both cores.
+8. A simulated Control-to-agent transport partition leaves established VPN
+   traffic alive, does not apply unreceived commands, and delivers a queued
+   policy after Control returns.
+9. Restarting Control does not lose the command journal; re-enabling the
    disabled subscription restores traffic on both nodes.
 
 The E2E is a reproducible loopback acceptance scenario, not a benchmark
