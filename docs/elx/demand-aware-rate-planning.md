@@ -1,29 +1,35 @@
-# Demand-aware rate planning contract
+# Demand-aware rate allocation and journal reconciliation
 
-ElX Control owns the global upload and download budgets. Every amount is a signed 64-bit **byte-per-second** rate. Upload and download are independent, and a local grant is either positive in both directions or fully disabled. A zero rate is **not** sent as Xray's legacy unlimited setting.
+ElX Control owns the global upload and download budgets. All rates are **bytes per second**. Each direction is independently constrained. A disabled local policy is represented explicitly by `disabled=true`, not by Xray's historical `rate=0` (unlimited).
 
-## Existing authority
+## Implemented
 
-`journal.QueueRateMove` is the only durable rate reservation path. `journal.FinalizeRateMove` releases reduced commitments only after the policy journal has an applied receipt and the pinned ElXray instance has signed the exact rate barrier. A successful transport ACK alone cannot free a rate commitment. The agent must check readback against the pinned core identity.
+- `allocation.PlanRebalance` calculates independent weighted max-min targets for trusted node/resource grants. A target ID is an internal identifier for the journal's `(node_id, resource_id)` pair, **not** a physical device.
+- `journal.RebalanceDemand` takes the effective purchased/FUP cap under the existing entitlement row lock, reads durable committed grants and pending operations, and queues **at most one** operation through `QueueRateMove`.
+- Incomplete operations block further planning. Missing, expired, unleased, rotating, and zero-demand observations freeze the grant at its already committed allocation; no capacity is silently reclaimed.
+- The first cycle queues reductions only. Later cycles require a new locked snapshot, and increases are queued only when the journal's signed rate barrier has been applied/finalized. A transport ACK alone does not free capacity.
+- `QueueRateMove` remains the final authorization gate, validating budget, revision and competing grants while committing the operation atomically. A concurrent writer or new FUP reduction turns a stale proposal into a safe `waiting` result.
+- PostgreSQL tests exercise two-phase move, replay before proof, unknown/stale demand, tightening budgets and invalid target inputs.
 
-`allocation.PlanRebalance` is a **pure planning function**, not an authorization API or an automatic runtime scheduler. It accepts the effective purchased/FUP budget and a current, trustworthy snapshot of node/resource commitments. Each `TargetID` is a unique allocation identity mapped by the calling scheduler to the journal's `(node_id, resource_id)` pair. It is **not** a physical device identifier and must not be used for device counting. Distinct node/resource pairs need distinct target IDs. `Current` means the maximum committed/pending/unknown amount, **never measured usage**. If either direction is unknown or the core has lost contact, the entire grant is marked `Frozen`. Its existing commitment stays charged. Missing grants must not be interpreted as released.
+## Reconciliation cycle contract
 
-`Requested` is the demand estimator's bounded target, considering observed throughput, limiter wait/saturation, per-resource caps and entitlement. `Weight` is positive and bounded. Neither measurement nor a request authorizes rate increases.
+The trusted scheduler obtains a short-lived per-target demand observation `journal.RateDemand`. This must come from **mTLS-validated, lease-checked telemetry**. `LeaseValid` is an assertion by the privileged collector, not a remotely supplied boolean or public API permission.
 
-## Transitions
+Each observation includes target identity, upload/download requested rate, fairness weight, timestamp and lease status. Observations older than ten seconds, more than two seconds in the future or lacking a valid lease are treated as unknown. A missing observation is also unknown. Unknown or pending grants keep their full committed allocation. A zero demand means the VPN may simply be idle: it does **not** authorize disconnecting it.
 
-A plan has `Lower`, `Raise`, `Target` and `FrozenOverBudget`.
+Call `RebalanceDemand(ctx, db, entitlementID, observations)`. Interpret its result:
 
-1. Persist the snapshot's version and proposed intent. Recheck the entitlement and every target revision under the entitlement lock.
-2. Enqueue `Lower` only. For each reduction, wait for durable core readback, signed drain/barrier, and journal finalization.
-3. Re-snapshot all grants and recompute `PlanRebalance`; the old `Raise` list is **only a proposal**, never an executable authorization. Do not increase using a stale plan.
-4. Only then use `QueueRateMove` for newly affordable increases; recheck FUP/entitlement, target revision, pending moves and core incarnation for each individual operation.
-5. After any timeout, duplicate request, new core boot, or leadership change, reconcile the journal before scheduling another change. A lost ACK does not imply free capacity.
+- `lower`: a rate reduction was queued in the existing journal; poll it through authenticated node delivery, require durable readback **and a signed ElXray reduction barrier**, then finalize.
+- `waiting`: an earlier operation is pending or a concurrent change invalidated the snapshot; do not automatically reuse its previously committed budget.
+- `raise`: a rate increase was queued; core application and durable journal finalization are still required.
+- `stable`: no operation was necessary for the current snapshot. It does not mean every target is reachable; check `FrozenTargets` and `FrozenOverBudget`.
 
-If frozen reservations already exceed the current effective budget, the planner proposes reductions of mutable grants but suppresses increases; it cannot revoke an unknown core or falsely claim strict compliance. An operator or safe fencing/lease expiry must resolve the oversized frozen reservation.
+Repeat only with fresh observations and a **new** journal snapshot. The scheduler must not execute the returned plan's old `Raise` list without resnapshotting. The function does not communicate with the nodes itself.
 
-## Additional implementation required
+## Boundaries and unfinished integration
 
-This change implements the side-effect-free planner with deterministic tests. A long-running scheduler must still obtain authenticated measurements, estimate and smooth demand, persist idempotent operations and revisions, enforce the above phase barrier, handle multi-process connectors, and provide multi-node integration/load tests. Do not advertise an active global demand-aware limiter until that scheduler and real core enforcement have passed the failure matrix.
+This is the **durable single-operation reconciliation mechanism**, not a running autonomous production scheduler. The authenticated node collector, limiter pressure/demand estimator, smoothing and hysteresis, schedule loop, core/connector accounting and long-duration multi-node failure tests still need implementation and wiring.
 
-Mandatory tests for the end-to-end scheduler: two saturated nodes, one idle node requesting more, independent upload/download, 50+50 to 30+70 with a lost ACK, simultaneous admissions, stale revisions, unknown node, FUP activation mid-transition, core restart with lower persisted cap, and Control outage.
+The current global journal budget is per node/resource, not per device. An additional verified device-bound enforcement layer is needed so that one VPN installation cannot acquire more device slots, while a router consumes one. No new grant is created by this function; provisioning the core/grant baseline and its trust anchors remains a prerequisite.
+
+Before production acceptance, verify multi-node real traffic, demand spikes, simultaneous FUP activation, lost ACK/barrier, core restart and rollback, network partitions, lease expiry and recovery, multi-process connector budgets, and concurrent independent scheduler instances. Do not claim strict global enforcement solely from a green Go test run.
