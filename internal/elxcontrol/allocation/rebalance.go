@@ -18,12 +18,12 @@ func (r Rates) withinBounds() bool {
 	return r.Up >= 0 && r.Up <= MaxRate && r.Down >= 0 && r.Down <= MaxRate
 }
 
-// GrantDemand represents a trusted, per-device snapshot from the Control
+// GrantDemand represents a trusted, per-target snapshot from the Control
 // journal. Current MUST include the maximum outstanding commitment, not just
-// measured throughput. A missing, unknown or pending node is Frozen and cannot
+// measured throughput. An unknown or pending target is Frozen and cannot
 // contribute any reusable capacity until reconciliation/fencing proves release.
 type GrantDemand struct {
-	DeviceID  uuid.UUID
+	TargetID  uuid.UUID
 	Current   Rates
 	Requested Rates
 	Weight    int64
@@ -31,7 +31,7 @@ type GrantDemand struct {
 }
 
 type Change struct {
-	DeviceID uuid.UUID
+	TargetID uuid.UUID
 	From     Rates
 	To       Rates
 }
@@ -64,16 +64,16 @@ func PlanRebalance(budget Rates, grants []GrantDemand) (RebalancePlan, error) {
 	var frozen Rates
 	mutable := make([]GrantDemand, 0, len(grants))
 	for _, grant := range grants {
-		if grant.DeviceID == uuid.Nil || seen[grant.DeviceID] ||
+		if grant.TargetID == uuid.Nil || seen[grant.TargetID] ||
 			!grant.Current.withinBounds() || !grant.Requested.withinBounds() ||
 			grant.Weight < 1 || grant.Weight > 1024 {
 			return RebalancePlan{}, errors.New("invalid or duplicate rate grant")
 		}
-		seen[grant.DeviceID] = true
+		seen[grant.TargetID] = true
 		if grant.Frozen {
 			frozen.Up += grant.Current.Up
 			frozen.Down += grant.Current.Down
-			out.Target[grant.DeviceID] = grant.Current
+			out.Target[grant.TargetID] = grant.Current
 			continue
 		}
 		mutable = append(mutable, grant)
@@ -86,9 +86,9 @@ func PlanRebalance(budget Rates, grants []GrantDemand) (RebalancePlan, error) {
 	upDemands := make([]Demand, 0, len(mutable))
 	downDemands := make([]Demand, 0, len(mutable))
 	for _, grant := range mutable {
-		upDemands = append(upDemands, Demand{DeviceID: grant.DeviceID,
+		upDemands = append(upDemands, Demand{DeviceID: grant.TargetID,
 			Requested: grant.Requested.Up, Weight: grant.Weight})
-		downDemands = append(downDemands, Demand{DeviceID: grant.DeviceID,
+		downDemands = append(downDemands, Demand{DeviceID: grant.TargetID,
 			Requested: grant.Requested.Down, Weight: grant.Weight})
 	}
 	up, err := Shares(available.Up, upDemands)
@@ -111,28 +111,28 @@ func PlanRebalance(budget Rates, grants []GrantDemand) (RebalancePlan, error) {
 		targets[share.DeviceID] = v
 	}
 	for _, grant := range mutable {
-		next := targets[grant.DeviceID]
+		next := targets[grant.TargetID]
 		// Local ElXray policy distinguishes disabled (both zero) from
 		// a positive per-direction grant. Never send a partial zero that
 		// could be interpreted as unlimited.
 		if next.Up == 0 || next.Down == 0 {
 			next = Rates{}
 		}
-		out.Target[grant.DeviceID] = next
+		out.Target[grant.TargetID] = next
 		floor := Rates{Up: min(grant.Current.Up, next.Up),
 			Down: min(grant.Current.Down, next.Down)}
 		if floor != grant.Current {
-			out.Lower = append(out.Lower, Change{grant.DeviceID, grant.Current, floor})
+			out.Lower = append(out.Lower, Change{grant.TargetID, grant.Current, floor})
 		}
 		if floor != next && !out.FrozenOverBudget {
-			out.Raise = append(out.Raise, Change{grant.DeviceID, floor, next})
+			out.Raise = append(out.Raise, Change{grant.TargetID, floor, next})
 		}
 	}
 	slices.SortFunc(out.Lower, func(a, b Change) int {
-		return slices.Compare(a.DeviceID[:], b.DeviceID[:])
+		return slices.Compare(a.TargetID[:], b.TargetID[:])
 	})
 	slices.SortFunc(out.Raise, func(a, b Change) int {
-		return slices.Compare(a.DeviceID[:], b.DeviceID[:])
+		return slices.Compare(a.TargetID[:], b.TargetID[:])
 	})
 	return out, nil
 }
