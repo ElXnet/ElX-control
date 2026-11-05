@@ -80,7 +80,7 @@ func TestRemotePressureIsPinnedAndAtomicWithFUPAccounting(t *testing.T) {
 	checkError(t, err, nil)
 	challenge, err := accounting.IssueRemoteChallenge(ctx, db, b.NodeID, b)
 	checkError(t, err, nil)
-	at := time.Now().UTC()
+	at := time.Now().UTC().Add(-7 * time.Second)
 	usage := remoteUsageProof(t, signer, sub, challenge.Nonce, b.Incarnation, 1, 100, 200, at)
 	pressure := remotePressureProof(signer, sub, challenge.Nonce, b.Incarnation,
 		2, 1, 30, 70, 100, 200, 3, 5, at.Add(time.Millisecond))
@@ -112,7 +112,7 @@ func TestRemotePressureIsPinnedAndAtomicWithFUPAccounting(t *testing.T) {
 
 	challenge, err = accounting.IssueRemoteChallenge(ctx, db, b.NodeID, b)
 	checkError(t, err, nil)
-	at = time.Now().UTC()
+	at = time.Now().UTC().Add(-time.Second)
 	nextUsage := remoteUsageProof(t, signer, sub, challenge.Nonce, b.Incarnation, 3, 120, 220, at)
 	nextPressure := remotePressureProof(signer, sub, challenge.Nonce, b.Incarnation,
 		4, 1, 30, 70, 120, 220, 4, 6, at.Add(time.Millisecond))
@@ -126,6 +126,16 @@ func TestRemotePressureIsPinnedAndAtomicWithFUPAccounting(t *testing.T) {
 		FROM elx_usage_periods WHERE id=$1`, period).Scan(&countedUp, &countedDown), nil)
 	if countedUp != 20 || countedDown != 20 {
 		t.Fatalf("signed usage lost or double counted: %d/%d", countedUp, countedDown)
+	}
+	// Two separate signed, pinned samples at the same policy revision are
+	// sufficient for a read-only demand estimate. The lease is NOT proven:
+	// this output must not be sent directly as an authorized RateDemand.
+	preview, err := PreviewDemand(ctx, db, entitlement.String())
+	checkError(t, err, nil)
+	if len(preview) != 1 || preview[0].Target != (Target{
+		NodeID:b.NodeID.String(), ResourceID:resource.String(),
+	}) || preview[0].Requested != (Rate{Up:60, Down:100}) {
+		t.Fatalf("signed pressure did not produce bounded preview: %+v", preview)
 	}
 
 	challenge, err = accounting.IssueRemoteChallenge(ctx, db, b.NodeID, b)
@@ -164,5 +174,26 @@ func TestRemotePressureIsPinnedAndAtomicWithFUPAccounting(t *testing.T) {
 		WHERE node_id=$1 AND resource_id=$2`, b.NodeID, resource).Scan(&storedSeq), nil)
 	if storedSeq != 4 {
 		t.Fatalf("retired rate signer updated active pressure stream: %d", storedSeq)
+	}
+	preview, err = PreviewDemand(ctx, db, entitlement.String())
+	checkError(t, err, nil)
+	if len(preview) != 0 {
+		t.Fatalf("former rate signing key still produced demand: %+v", preview)
+	}
+	// A pending rate move prevents the old telemetry from authorizing a
+	// fresh rate allocation, without forging an applied core acknowledgment.
+	_, err = db.ExecContext(ctx, `UPDATE elx_rate_grants
+		SET barrier_public_key=$3 WHERE node_id=$1 AND resource_id=$2`,
+		b.NodeID, resource, []byte(public))
+	checkError(t, err, nil)
+	pendingOperation := uuid.NewString()
+	_, err = QueueRateMove(ctx, db, entitlement.String(),
+		Target{NodeID:b.NodeID.String(),ResourceID:resource.String()},
+		pendingOperation, 0, Rate{Up:20,Down:60})
+	checkError(t, err, nil)
+	preview, err = PreviewDemand(ctx, db, entitlement.String())
+	checkError(t, err, nil)
+	if len(preview) != 0 {
+		t.Fatalf("old evidence survived a pending policy transition: %+v", preview)
 	}
 }
