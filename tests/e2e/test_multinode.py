@@ -390,6 +390,29 @@ def test_multinode():
                     "core restart reused old signed incarnation")
             print("PASS: durable disabled policy and new incarnation after core restart")
 
+            # Simulate a Control-to-agent network partition by removing only
+            # the Control listener. Both live VPN cores must keep forwarding
+            # under their last accepted policies; no agent may invent a new
+            # revision or grant while disconnected.
+            with lab.connect(1) as partition_flow:
+                lab.ping(partition_flow, b"before-control-partition")
+                lab.stop("control")
+                lab.ping(partition_flow, b"through-control-partition")
+                require(int(lab.get_policy(1)["revision"]) == 2,
+                        "agent changed policy while Control was unreachable")
+                # Queue an update durably while the transport is unavailable.
+                lab.enqueue(1, 1, 120000, 130000)
+                time.sleep(0.7)
+                require(int(lab.get_policy(1)["revision"]) == 2,
+                        "offline agent applied a queued policy without Control")
+                lab.spawn("control", [lab.control, "serve-policy"],
+                          env=lab.env(cert="control"))
+                partition_policy = lab.await_revision(1, 3)
+                require(int(partition_policy["downlinkBps"]) == 130000,
+                        "reconnected agent failed to apply durable queued update")
+                lab.ping(partition_flow, b"after-control-reconnect")
+            print("PASS: Control-agent partition, no speculative grants, queued recovery")
+
             # Surviving Control restarts must preserve journal revisions.
             lab.stop("control")
             lab.spawn("control", [lab.control, "serve-policy"], env=lab.env(cert="control"))
