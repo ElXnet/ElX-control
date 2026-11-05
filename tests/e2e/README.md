@@ -133,3 +133,32 @@ it does not exercise physical WAN loss, asymmetric packet loss,
 multi-master replication, or a database failover from one primary to
 another. The offline device and FUP admission behavior still requires
 a multi-client deployment acceptance run.
+
+
+## Full suite on machines with restricted public Internet
+
+The legacy `-Full` runner previously called `go test ./...` without
+preparing Xray's geodata files and without isolating tests that dial
+Cloudflare/Google/other external DNS endpoints. This could fail in WSL NAT
+even when the ElX Control + ElXray real loopback E2E was green.
+
+`scripts/elxray-full-go-tests.sh` now downloads `geoip.dat` and
+`geosite.dat` using the **same sources and SHA-256 verification** as
+ElXray's own GitHub CI. It then runs all deterministic Go tests, with the
+exact network-dependent test names printed as a `SKIPPED` pattern.
+This is a *reduced*, explicitly labelled gate, NOT a claim that every
+upstream test was executed.
+
+To opt into live public Internet ECH/DNS/REALITY tests during `-Full`:
+```powershell
+$env:ELX_EXTERNAL_NETWORK_TESTS = "1"
+# This environment variable must also reach WSL. Prefer running from WSL:
+```
+```bash
+ELX_EXTERNAL_NETWORK_TESTS=1 bash scripts/elxray-full-go-tests.sh ../ElXray
+```
+The local Windows launcher does not automatically pass custom Windows
+environment variables into WSL: execute that command inside Ubuntu or
+set `WSLENV=ELX_EXTERNAL_NETWORK_TESTS/u` in Windows before launching
+`-Full`. In either case these public tests may fail from blocked network
+paths, and their failures remain failures.
