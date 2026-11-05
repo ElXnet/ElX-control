@@ -3,6 +3,7 @@ package journal
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"sync"
@@ -124,7 +125,11 @@ func seedAttestedRateTarget(t *testing.T, ctx context.Context, db *sql.DB,
 		uuid.NewString(),target.ResourceID)
 	checkError(t,err,nil)
 	var prevBlocked,currentBlocked int64
-	if saturated {prevBlocked,currentBlocked=2,3}
+	var previousBlockedNanos int64=100
+	if saturated {
+		prevBlocked,currentBlocked=2,3
+		previousBlockedNanos=99
+	}
 	_,err=db.ExecContext(ctx,`INSERT INTO elx_rate_pressure_samples
 	 (node_id,resource_id,incarnation,sequence,sampled_at,received_at,
 	  core_revision,policy_up,policy_down,
@@ -139,9 +144,9 @@ func seedAttestedRateTarget(t *testing.T, ctx context.Context, db *sql.DB,
 	  1,50000,50000,
 	  5000,5000,$5,$5,100,100,0,0,
 	  1,$6,1,50000,50000,
-	  5000,5000,$7,$7,99,99)`,
+	  5000,5000,$7,$7,$8,$8)`,
 		target.NodeID,target.ResourceID,incarnation,sampledAt,
-		currentBlocked,sampledAt.Add(-5*time.Second),prevBlocked)
+		currentBlocked,sampledAt.Add(-5*time.Second),prevBlocked,previousBlockedNanos)
 	checkError(t,err,nil)
 	_,err=db.ExecContext(ctx,`INSERT INTO elx_rate_lease_acceptances
 	 (node_id,resource_id,incarnation,pressure_sequence,
