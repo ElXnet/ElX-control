@@ -9,9 +9,9 @@ import (
 func TestPlanRebalanceDemandAndIndependentDirections(t *testing.T) {
 	a, b, c := uuid.New(), uuid.New(), uuid.New()
 	plan, err := PlanRebalance(Rates{100, 100}, []GrantDemand{
-		{DeviceID: a, Current: Rates{50, 50}, Requested: Rates{5, 100}, Weight: 1},
-		{DeviceID: b, Current: Rates{50, 50}, Requested: Rates{100, 100}, Weight: 1},
-		{DeviceID: c, Current: Rates{}, Requested: Rates{100, 5}, Weight: 1},
+		{TargetID: a, Current: Rates{50, 50}, Requested: Rates{5, 100}, Weight: 1},
+		{TargetID: b, Current: Rates{50, 50}, Requested: Rates{100, 100}, Weight: 1},
+		{TargetID: c, Current: Rates{}, Requested: Rates{100, 5}, Weight: 1},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -47,8 +47,8 @@ func TestPlanRebalanceDemandAndIndependentDirections(t *testing.T) {
 func TestPlanRebalanceFrozenUnknownNeverReusesBudget(t *testing.T) {
 	unknown, active := uuid.New(), uuid.New()
 	plan, err := PlanRebalance(Rates{100, 100}, []GrantDemand{
-		{DeviceID: unknown, Current: Rates{70, 40}, Requested: Rates{}, Weight: 1, Frozen: true},
-		{DeviceID: active, Current: Rates{30, 60}, Requested: Rates{100, 100}, Weight: 1},
+		{TargetID: unknown, Current: Rates{70, 40}, Requested: Rates{}, Weight: 1, Frozen: true},
+		{TargetID: active, Current: Rates{30, 60}, Requested: Rates{100, 100}, Weight: 1},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -64,8 +64,8 @@ func TestPlanRebalanceFrozenUnknownNeverReusesBudget(t *testing.T) {
 func TestPlanRebalanceFrozenOverBudgetNeverRaises(t *testing.T) {
 	frozen, live := uuid.New(), uuid.New()
 	plan, err := PlanRebalance(Rates{40, 40}, []GrantDemand{
-		{DeviceID: frozen, Current: Rates{50, 50}, Requested: Rates{}, Weight: 1, Frozen: true},
-		{DeviceID: live, Current: Rates{10, 10}, Requested: Rates{40, 40}, Weight: 1},
+		{TargetID: frozen, Current: Rates{50, 50}, Requested: Rates{}, Weight: 1, Frozen: true},
+		{TargetID: live, Current: Rates{10, 10}, Requested: Rates{40, 40}, Weight: 1},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -84,8 +84,8 @@ func TestPlanRebalanceFrozenOverBudgetNeverRaises(t *testing.T) {
 func TestPlanRebalanceDoesNotSendPartialZero(t *testing.T) {
 	a, b := uuid.New(), uuid.New()
 	plan, err := PlanRebalance(Rates{1, 100}, []GrantDemand{
-		{DeviceID: a, Current: Rates{1, 50}, Requested: Rates{100, 100}, Weight: 1},
-		{DeviceID: b, Current: Rates{}, Requested: Rates{100, 100}, Weight: 1},
+		{TargetID: a, Current: Rates{1, 50}, Requested: Rates{100, 100}, Weight: 1},
+		{TargetID: b, Current: Rates{}, Requested: Rates{100, 100}, Weight: 1},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -104,10 +104,10 @@ func TestPlanRebalanceRejectsInvalidAndDuplicateInputs(t *testing.T) {
 		input []GrantDemand
 	}{
 		{Rates{-1, 100}, nil},
-		{Rates{100, 100}, []GrantDemand{{DeviceID: uuid.Nil, Weight: 1}}},
-		{Rates{100, 100}, []GrantDemand{{DeviceID: id, Weight: 0}}},
-		{Rates{100, 100}, []GrantDemand{{DeviceID: id, Weight: 1, Current: Rates{-1, 2}}}},
-		{Rates{100, 100}, []GrantDemand{{DeviceID: id, Weight: 1}, {DeviceID: id, Weight: 1}}},
+		{Rates{100, 100}, []GrantDemand{{TargetID: uuid.Nil, Weight: 1}}},
+		{Rates{100, 100}, []GrantDemand{{TargetID: id, Weight: 0}}},
+		{Rates{100, 100}, []GrantDemand{{TargetID: id, Weight: 1, Current: Rates{-1, 2}}}},
+		{Rates{100, 100}, []GrantDemand{{TargetID: id, Weight: 1}, {TargetID: id, Weight: 1}}},
 	}
 	for i, tc := range cases {
 		if _, err := PlanRebalance(tc.budget, tc.input); err == nil {
@@ -119,9 +119,9 @@ func TestPlanRebalanceRejectsInvalidAndDuplicateInputs(t *testing.T) {
 func TestPlanRebalanceDeterministicAcrossInputOrder(t *testing.T) {
 	a, b, c := uuid.New(), uuid.New(), uuid.New()
 	input := []GrantDemand{
-		{DeviceID: a, Current: Rates{30, 30}, Requested: Rates{100, 100}, Weight: 1},
-		{DeviceID: b, Current: Rates{30, 30}, Requested: Rates{100, 100}, Weight: 1},
-		{DeviceID: c, Current: Rates{30, 30}, Requested: Rates{100, 100}, Weight: 1},
+		{TargetID: a, Current: Rates{30, 30}, Requested: Rates{100, 100}, Weight: 1},
+		{TargetID: b, Current: Rates{30, 30}, Requested: Rates{100, 100}, Weight: 1},
+		{TargetID: c, Current: Rates{30, 30}, Requested: Rates{100, 100}, Weight: 1},
 	}
 	first, err := PlanRebalance(Rates{100, 100}, input)
 	if err != nil {
