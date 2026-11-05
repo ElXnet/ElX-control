@@ -43,7 +43,7 @@ func remoteLeaseProof(signer ed25519.PrivateKey, sub, nonce string,
 	for i, value := range fields {
 		binary.BigEndian.PutUint64(data[32+i*8:40+i*8], value)
 	}
-	transcript := fmt.Appendf(nil, "elx-lease-accept-v1\\n%x\\n%x\\n%x", nonce, sub, data)
+	transcript := fmt.Appendf(nil, "elx-lease-accept-v1\n%x\n%x\n%x", nonce, sub, data)
 	return append(data, ed25519.Sign(signer, transcript)...)
 }
 
