@@ -57,6 +57,27 @@ jobs:
               $errors | Format-List
               throw "Windows test launcher contains PowerShell syntax errors"
           }
+      - name: Verify native stdout/stderr log capture and exit code in PowerShell 5.1
+        shell: powershell
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'native-output.txt'
+          'test-log-header' | Set-Content -LiteralPath $log -Encoding Unicode
+          $ErrorActionPreference = 'Continue'
+          & cmd.exe /d /c 'echo NATIVE_STDOUT & echo NATIVE_STDERR 1>&2 & exit /b 7' 2>&1 |
+              ForEach-Object { $_.ToString() } |
+              Tee-Object -FilePath $log -Append
+          if ($LASTEXITCODE -ne 7) {
+              throw "Native process exit code was lost by the streaming pipeline"
+          }
+          # The nonzero result was intentional; clear it AFTER assertion so
+          # actions' PowerShell wrapper does not fail an otherwise green job.
+          $global:LASTEXITCODE = 0
+          $output = Get-Content -LiteralPath $log -Raw
+          foreach ($item in @('test-log-header', 'NATIVE_STDOUT', 'NATIVE_STDERR')) {
+              if (-not $output.Contains($item)) {
+                  throw "Lost native output in log: $item"
+              }
+          }
 
   elxray-go-regression:
     runs-on: ubuntu-latest
