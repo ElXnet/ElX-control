@@ -30,6 +30,23 @@ func remotePressureProof(signer ed25519.PrivateKey, sub, nonce string,
 	return append(data, ed25519.Sign(signer, transcript)...)
 }
 
+func remoteLeaseProof(signer ed25519.PrivateKey, sub, nonce string,
+	boot, node uuid.UUID, sequence, revision, up, down uint64,
+	expires time.Time) []byte {
+	data := make([]byte, 88)
+	copy(data[:16], boot[:])
+	copy(data[16:32], node[:])
+	fields := [7]uint64{
+		sequence, uint64(expires.Unix()), up, down,
+		revision, up, down,
+	}
+	for i, value := range fields {
+		binary.BigEndian.PutUint64(data[32+i*8:40+i*8], value)
+	}
+	transcript := fmt.Appendf(nil, "elx-lease-accept-v1\n%x\n%x\n%x", nonce, sub, data)
+	return append(data, ed25519.Sign(signer, transcript)...)
+}
+
 func TestRemotePressureIsPinnedAndAtomicWithFUPAccounting(t *testing.T) {
 	ctx, db := testDatabase(t)
 	now := time.Now().UTC()
@@ -95,7 +112,15 @@ func TestRemotePressureIsPinnedAndAtomicWithFUPAccounting(t *testing.T) {
 	if streamSequence != 0 {
 		t.Fatalf("invalid pressure proof charged usage: %d", streamSequence)
 	}
-	receipt, err := accounting.SubmitRemoteTelemetry(ctx, db, b.NodeID, b, usage, pressure)
+	lease := remoteLeaseProof(signer, sub, challenge.Nonce, b.Incarnation,
+		b.NodeID, 10, 1, 30, 70, time.Now().Add(15*time.Second))
+	badLease := append([]byte(nil), lease...)
+	badLease[20] ^= 1
+	_, err = accounting.SubmitRemoteTelemetryWithLease(ctx, db, b.NodeID, b,
+		usage, pressure, badLease)
+	checkError(t, err, accounting.ErrRemoteEvidence)
+	receipt, err := accounting.SubmitRemoteTelemetryWithLease(ctx, db, b.NodeID, b,
+		usage, pressure, lease)
 	checkError(t, err, nil)
 	if receipt.Sequence != 1 {
 		t.Fatalf("usage was not durably received: %+v", receipt)
@@ -116,7 +141,10 @@ func TestRemotePressureIsPinnedAndAtomicWithFUPAccounting(t *testing.T) {
 	nextUsage := remoteUsageProof(t, signer, sub, challenge.Nonce, b.Incarnation, 3, 120, 220, at)
 	nextPressure := remotePressureProof(signer, sub, challenge.Nonce, b.Incarnation,
 		4, 1, 30, 70, 120, 220, 4, 6, at.Add(time.Millisecond))
-	receipt, err = accounting.SubmitRemoteTelemetry(ctx, db, b.NodeID, b, nextUsage, nextPressure)
+	nextLease := remoteLeaseProof(signer, sub, challenge.Nonce, b.Incarnation,
+		b.NodeID, 11, 1, 30, 70, time.Now().Add(15*time.Second))
+	receipt, err = accounting.SubmitRemoteTelemetryWithLease(ctx, db, b.NodeID, b,
+		nextUsage, nextPressure, nextLease)
 	checkError(t, err, nil)
 	if receipt.Sequence != 3 {
 		t.Fatalf("expected new usage high watermark: %+v", receipt)
@@ -128,10 +156,17 @@ func TestRemotePressureIsPinnedAndAtomicWithFUPAccounting(t *testing.T) {
 		t.Fatalf("signed usage lost or double counted: %d/%d", countedUp, countedDown)
 	}
 	// Two separate signed, pinned samples at the same policy revision are
-	// sufficient for a read-only demand estimate. The lease is NOT proven:
-	// this output must not be sent directly as an authorized RateDemand.
+	// necessary for a demand estimate, but a current signed core lease
+	// acceptance bound to the same latest sequence is ALSO mandatory.
 	preview, err := PreviewDemand(ctx, db, entitlement.String())
 	checkError(t, err, nil)
+	var leasePressureSeq, leaseSeq int64
+	checkError(t, db.QueryRowContext(ctx, `SELECT pressure_sequence,lease_sequence
+		FROM elx_rate_lease_acceptances WHERE node_id=$1 AND resource_id=$2`,
+		b.NodeID, resource).Scan(&leasePressureSeq, &leaseSeq), nil)
+	if leasePressureSeq != 4 || leaseSeq != 11 {
+		t.Fatalf("lease proof not tied to latest signed pressure: %d/%d", leasePressureSeq, leaseSeq)
+	}
 	if len(preview) != 1 || preview[0].Target != (Target{
 		NodeID:b.NodeID.String(), ResourceID:resource.String(),
 	}) || preview[0].Requested != (Rate{Up:60, Down:100}) {

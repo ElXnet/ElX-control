@@ -42,6 +42,12 @@ func TestCoreRotationRequiresSignedDrainAndRetainsOccupiedSessions(t *testing.T)
 	 VALUES($1,$2,$3,1,clock_timestamp(),1,500,500,1,1,0,0,0,0,0,0)`,
 	 node,res,oldBoot)
 	checkError(t,err,nil)
+	_,err=db.ExecContext(ctx,`INSERT INTO elx_rate_lease_acceptances
+	 (node_id,resource_id,incarnation,pressure_sequence,lease_sequence,
+	  lease_expires_at,policy_revision,policy_up,policy_down,ceiling_up,ceiling_down)
+	 VALUES($1,$2,$3,1,42,clock_timestamp()+interval '15 seconds',1,500,500,500,500)`,
+	 node,res,oldBoot)
+	checkError(t,err,nil)
 	// The paid node inventory and rate epoch must rotate atomically too.
 	_,err=db.ExecContext(ctx,`INSERT INTO elx_node_inventory(node_id,incarnation,enabled)
 	 VALUES($1,$2,true)`,node,oldBoot)
@@ -162,6 +168,13 @@ func TestCoreRotationRequiresSignedDrainAndRetainsOccupiedSessions(t *testing.T)
 	checkError(t,err,nil)
 	if leftoverPressure!=0{
 		t.Fatalf("retired core still owned %d pressure high watermarks",leftoverPressure)
+	}
+	var leftoverLease int
+	err=db.QueryRowContext(ctx,`SELECT count(*) FROM elx_rate_lease_acceptances
+	 WHERE node_id=$1 AND resource_id=$2`,node,res).Scan(&leftoverLease)
+	checkError(t,err,nil)
+	if leftoverLease!=0 {
+		t.Fatalf("retired core kept %d signed lease acceptances",leftoverLease)
 	}
 	if _,err=session.IssueChallenge(ctx,db,intent);!errors.Is(err,session.ErrDenied){
 		t.Fatalf("retired incarnation admitted device after cutover: %v",err)

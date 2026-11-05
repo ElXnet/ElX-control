@@ -202,6 +202,11 @@ func CompleteCoreRotation(ctx context.Context,db *sql.DB,id string)(CoreRotation
  _,err=tx.ExecContext(ctx,`DELETE FROM elx_rate_pressure_samples
   WHERE node_id=$1 AND incarnation=$2`,out.NodeID,out.OldIncarnation)
  if err!=nil{return out,err}
+ // Accepted leases from the retiring core are invalid after takeover.
+ // Delete them in the same fully fenced rotation transaction.
+ _,err=tx.ExecContext(ctx,`DELETE FROM elx_rate_lease_acceptances
+  WHERE node_id=$1 AND incarnation=$2`,out.NodeID,out.OldIncarnation)
+ if err!=nil{return out,err}
  // Archive signed accounting WITHOUT resetting periods or watermarks.
  // Sources from the retired incarnation can never be polled again.
  _,err=tx.ExecContext(ctx,`UPDATE elx_accounting_streams SET closed=true

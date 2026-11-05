@@ -11,9 +11,9 @@ import (
 )
 
 // DemandEstimate is a non-authorizing view of TWO previously verified signed
-// pressure samples. It proves neither a current Control lease at the core nor
-// the physical number of devices. An operator cannot queue a grant directly
-// from this read-only output.
+// pressure samples and a fresh core-signed lease acceptance for the latest
+// sample. It does not prove a physical device identity, future connectivity,
+// or permission to queue a grant without the journal's own checks.
 type DemandEstimate struct {
 	Target      Target
 	Incarnation uuid.UUID
@@ -27,10 +27,10 @@ type DemandEstimate struct {
 // unpinned or transitioning sources are OMITTED. A caller MUST treat every
 // absent target as frozen at its existing committed grant.
 //
-// This is read-only: a separate signed lease-acceptance proof must be
-// verified before constructing journal.RateDemand{LeaseValid:true} for
-// RebalanceDemand. A server-issued lease alone is not proof that the core
-// accepted it, so this function never sets LeaseValid.
+// This is read-only. The lease attestation is verified at ingestion and
+// tied to the exact latest pressure sequence here. A server-issued lease alone
+// is insufficient. RebalanceDemand must independently resnapshot durable
+// grants, purchased limits and FUP and then enforce signed rate barriers.
 func PreviewDemand(ctx context.Context, db *sql.DB, entitlement string) ([]DemandEstimate, error) {
 	u, err := uuid.Parse(entitlement)
 	if db == nil || err != nil || u == uuid.Nil || u.String() != entitlement {
@@ -61,7 +61,13 @@ func PreviewDemand(ctx context.Context, db *sql.DB, entitlement string) ([]Deman
 		  p.previous_up_blocked_nanos,p.previous_down_blocked_nanos
 		FROM elx_rate_pressure_samples p
 		JOIN elx_rate_grants g USING(node_id,resource_id)
-		JOIN elx_operation_targets t USING(node_id,resource_id)
+		JOIN elx_rate_lease_acceptances lease
+		  ON lease.node_id=p.node_id AND lease.resource_id=p.resource_id
+		  AND lease.incarnation=p.incarnation AND lease.pressure_sequence=p.sequence
+		  AND lease.policy_revision=p.core_revision
+		  AND lease.policy_up=p.policy_up AND lease.policy_down=p.policy_down
+		JOIN elx_operation_targets t
+		  ON t.node_id=p.node_id AND t.resource_id=p.resource_id
 		JOIN elx_core_identities c ON c.node_id=p.node_id AND c.incarnation=p.incarnation
 		JOIN elx_entitlements e ON e.id=g.entitlement_id
 		WHERE g.entitlement_id=$1
@@ -75,6 +81,10 @@ func PreviewDemand(ctx context.Context, db *sql.DB, entitlement string) ([]Deman
 		  AND p.previous_policy_up=p.policy_up
 		  AND p.previous_policy_down=p.policy_down
 		  AND p.received_at>=clock_timestamp()-interval '10 seconds'
+		  AND lease.received_at>=clock_timestamp()-interval '10 seconds'
+		  AND lease.lease_expires_at>clock_timestamp()+interval '2 seconds'
+		  AND lease.ceiling_up>=g.committed_up
+		  AND lease.ceiling_down>=g.committed_down
 		  AND NOT EXISTS(SELECT 1 FROM elx_rate_moves m
 			WHERE m.node_id=p.node_id AND m.resource_id=p.resource_id AND NOT m.finalized)
 		  AND NOT EXISTS(SELECT 1 FROM elx_core_rotations rot
