@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: ElXnet/ElX-ui
-          ref: chore/ci-and-main-consolidation
+          ref: main
           path: ElX-ui
       - name: Check separation of Control and UI responsibilities
         run: python3 ElX-control/scripts/check-repository-boundary.py "$GITHUB_WORKSPACE"
@@ -64,7 +64,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: ElXnet/ElXray
-          ref: feat/policy-runtime-fencing
+          ref: main
           path: ElXray
       - name: Set up Go
         uses: actions/setup-go@v6
