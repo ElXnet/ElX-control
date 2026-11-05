@@ -1,0 +1,26 @@
+syntax = "proto3";
+package xray.app.policy.command;
+option go_package = "github.com/xtls/xray-core/app/policy/command";
+
+message GetSubscriptionRequest { string id = 1; }
+message Subscription {
+ string id = 1;
+ repeated string emails = 2;
+ uint64 uplink_bps = 3;
+ uint64 downlink_bps = 4;
+ uint64 revision = 5;
+ bool disabled = 6;
+}
+message SetSubscriptionRequest {
+ string id = 1;
+ uint64 expected_revision = 2;
+ uint64 revision = 3;
+ optional uint64 uplink_bps = 4;
+ optional uint64 downlink_bps = 5;
+ optional bool disabled = 6;
+}
+service SubscriptionService {
+ rpc GetSubscription(GetSubscriptionRequest) returns (Subscription);
+ rpc SetSubscription(SetSubscriptionRequest) returns (Subscription);
+}
+message Config {}

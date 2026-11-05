@@ -1,0 +1,83 @@
+name: ElX Control integration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cmd/elx-control/**"
+      - "internal/elxcontrol/**"
+      - "scripts/elx-*.sh"
+      - "scripts/elx-*.py"
+      - "scripts/run-elx-windows.ps1"
+      - "scripts/check-repository-boundary.py"
+      - ".github/workflows/elx-control-integration.yml"
+      - "go.mod"
+      - "go.sum"
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repository-boundary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout canonical Control
+        uses: actions/checkout@v5
+        with:
+          path: ElX-control
+      - name: Checkout panel integration branch
+        uses: actions/checkout@v5
+        with:
+          repository: ElXnet/ElX-ui
+          ref: main
+          path: ElX-ui
+      - name: Check separation of Control and UI responsibilities
+        run: python3 ElX-control/scripts/check-repository-boundary.py "$GITHUB_WORKSPACE"
+
+  local-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: elx
+          POSTGRES_PASSWORD: elx_ci_only
+          POSTGRES_DB: elx_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U elx -d elx_test"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - name: Checkout canonical Control
+        uses: actions/checkout@v5
+        with:
+          path: ElX-control
+      - name: Checkout ElXray integration branch
+        uses: actions/checkout@v5
+        with:
+          repository: ElXnet/ElXray
+          ref: main
+          path: ElXray
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: ElX-control/go.mod
+          cache: false
+      - name: Print tested revisions
+        run: |
+          go version
+          git -C ElX-control rev-parse HEAD
+          git -C ElXray rev-parse HEAD
+      - name: Run Control race, PostgreSQL, policy, signed-fence and VLESS suite
+        working-directory: ElX-control
+        env:
+          ELX_CONTROL_POSTGRES_DSN: "host=127.0.0.1 port=5432 user=elx dbname=elx_test password=elx_ci_only sslmode=disable"
+        run: bash scripts/elx-test-local.sh
