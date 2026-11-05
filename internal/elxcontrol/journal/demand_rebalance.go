@@ -236,6 +236,22 @@ func rebalanceDemand(ctx context.Context, db *sql.DB, entitlement string,
 	if next == nil {
 		return out, nil
 	}
+	// Revalidate the same leader epoch against a FRESH database time just
+	// before queuing. A slow plan must never enqueue after its lease expires.
+	// The entitlement lock excludes concurrent telemetry/FUP/leader updates;
+	// the extra time check closes a slow-transaction expiry gap.
+	if leader != nil {
+		var latest time.Time
+		if err := tx.QueryRowContext(ctx, "SELECT clock_timestamp()").Scan(&latest); err != nil {
+			return DemandRebalanceResult{}, err
+		}
+		if err := verifySchedulerLeaseTx(ctx, tx, *leader, latest); err != nil {
+			return DemandRebalanceResult{}, err
+		}
+		if latest.Sub(now) > maxDemandAge {
+			return DemandRebalanceResult{Phase:"waiting"}, nil
+		}
+	}
 	grant := current[next.TargetID]
 	desired := Rate{Up: next.To.Up, Down: next.To.Down}
 	if !desired.valid() {
