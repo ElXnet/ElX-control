@@ -11,9 +11,9 @@ import (
 )
 
 // DemandEstimate is a non-authorizing view of TWO previously verified signed
-// pressure samples. It proves neither a current Control lease at the core nor
-// the physical number of devices. An operator cannot queue a grant directly
-// from this read-only output.
+// pressure samples and a fresh core-signed lease acceptance for the latest
+// sample. It does not prove a physical device identity, future connectivity,
+// or permission to queue a grant without the journal's own checks.
 type DemandEstimate struct {
 	Target      Target
 	Incarnation uuid.UUID
@@ -27,10 +27,10 @@ type DemandEstimate struct {
 // unpinned or transitioning sources are OMITTED. A caller MUST treat every
 // absent target as frozen at its existing committed grant.
 //
-// This is read-only: a separate signed lease-acceptance proof must be
-// verified before constructing journal.RateDemand{LeaseValid:true} for
-// RebalanceDemand. A server-issued lease alone is not proof that the core
-// accepted it, so this function never sets LeaseValid.
+// This is read-only. The lease attestation is verified at ingestion and
+// tied to the exact latest pressure sequence here. A server-issued lease alone
+// is insufficient. RebalanceDemand must independently resnapshot durable
+// grants, purchased limits and FUP and then enforce signed rate barriers.
 func PreviewDemand(ctx context.Context, db *sql.DB, entitlement string) ([]DemandEstimate, error) {
 	u, err := uuid.Parse(entitlement)
 	if db == nil || err != nil || u == uuid.Nil || u.String() != entitlement {
