@@ -137,23 +137,6 @@ func TestRemotePressureIsPinnedAndAtomicWithFUPAccounting(t *testing.T) {
 	}) || preview[0].Requested != (Rate{Up:100, Down:100}) {
 		t.Fatalf("signed pressure did not produce bounded preview: %+v", preview)
 	}
-	// A pending rate move makes previous pressure unfit for reallocation.
-	pendingOperation := uuid.NewString()
-	_, err = QueueRateMove(ctx, db, entitlement.String(),
-		Target{NodeID:b.NodeID.String(),ResourceID:resource.String()},
-		pendingOperation, 0, Rate{Up:20,Down:60})
-	checkError(t, err, nil)
-	preview, err = PreviewDemand(ctx, db, entitlement.String())
-	checkError(t, err, nil)
-	if len(preview) != 0 {
-		t.Fatalf("old evidence survived a pending policy transition: %+v", preview)
-	}
-	// This test focuses on ingestion below; complete the operation via an
-	// isolated journal manipulation so a pending move does not prevent the
-	// subsequent accounting-and-retired-key check.
-	_, err = db.ExecContext(ctx, `UPDATE elx_rate_moves
-		SET finalized=true WHERE operation_id=$1`, pendingOperation)
-	checkError(t, err, nil)
 
 	challenge, err = accounting.IssueRemoteChallenge(ctx, db, b.NodeID, b)
 	checkError(t, err, nil)
@@ -191,5 +174,21 @@ func TestRemotePressureIsPinnedAndAtomicWithFUPAccounting(t *testing.T) {
 		WHERE node_id=$1 AND resource_id=$2`, b.NodeID, resource).Scan(&storedSeq), nil)
 	if storedSeq != 4 {
 		t.Fatalf("retired rate signer updated active pressure stream: %d", storedSeq)
+	}
+	// A pending rate move prevents the old telemetry from authorizing a
+	// fresh rate allocation, without forging an applied core acknowledgment.
+	_, err = db.ExecContext(ctx, `UPDATE elx_rate_grants
+		SET barrier_public_key=$3 WHERE node_id=$1 AND resource_id=$2`,
+		b.NodeID, resource, []byte(public))
+	checkError(t, err, nil)
+	pendingOperation := uuid.NewString()
+	_, err = QueueRateMove(ctx, db, entitlement.String(),
+		Target{NodeID:b.NodeID.String(),ResourceID:resource.String()},
+		pendingOperation, 0, Rate{Up:20,Down:60})
+	checkError(t, err, nil)
+	preview, err = PreviewDemand(ctx, db, entitlement.String())
+	checkError(t, err, nil)
+	if len(preview) != 0 {
+		t.Fatalf("old evidence survived a pending policy transition: %+v", preview)
 	}
 }
