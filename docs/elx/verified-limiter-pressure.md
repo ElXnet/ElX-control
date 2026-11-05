@@ -22,3 +22,7 @@ The verified remote accounting + pressure ingestion now exists, but **automatic 
 The sample table contains the latest high-watermark only, not a time-series. To measure a rate, the scheduler must persist a previous accepted sample separately or the table must be extended with a short history. Do not infer throughput by dividing a single lifetime payload counter by wall-clock time.
 
 Core reductions can only release global allocations after signed rate barriers, and the policy must be enforced by a healthy core lease. No production multi-node performance guarantees follow from these component tests alone.
+
+## Rotation and isolation
+
+A core identity listed in `elx_core_identities` is not enough for an allocator observation. The active rate grant must have the **same** pinned barrier public key, and the node must not be in `quiescing` rotation state. This blocks an old (still signed) core from contributing allocator demand after a new policy key is installed. Old high-watermarks are deleted only inside `CompleteCoreRotation`, after verified zero-rate barriers, session releases, final usage and the 45-second lease grace. The new core then starts with no trusted pressure baseline; fresh two-sample telemetry must establish its demand before scheduling rate changes.
