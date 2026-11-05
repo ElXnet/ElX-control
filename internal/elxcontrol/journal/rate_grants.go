@@ -57,6 +57,7 @@ func queueRateMoveTx(ctx context.Context, tx *sql.Tx, entitlement string, target
 		expected < 0 || expected > math.MaxInt64-2 {
 		return 0, ErrInvalid
 	}
+	var err error
 	// A quiescing core may only receive signed disable/drain operations.
 	// Positive rates cannot be queued while the old core is being fenced.
 	if desired.Up>0 || desired.Down>0 {
