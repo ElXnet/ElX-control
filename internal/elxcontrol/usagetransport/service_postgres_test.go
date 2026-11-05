@@ -165,7 +165,7 @@ func (c *proofCore) ReadLeaseAcceptanceEvidence(_ context.Context,
 	for i, value := range lease {
 		binary.BigEndian.PutUint64(payload[32+i*8:40+i*8], value)
 	}
-	transcript := fmt.Appendf(nil, "elx-lease-accept-v1\\n%x\\n%x\\n%x",
+	transcript := fmt.Appendf(nil, "elx-lease-accept-v1\n%x\n%x\n%x",
 		nonce, subscription, payload)
 	return append(payload, ed25519.Sign(c.key, transcript)...), nil
 }
