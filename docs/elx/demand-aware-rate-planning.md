@@ -6,7 +6,7 @@ ElX Control owns the global upload and download budgets. All rates are **bytes p
 
 - `allocation.PlanRebalance` calculates independent weighted max-min targets for trusted node/resource grants. A target ID is an internal identifier for the journal's `(node_id, resource_id)` pair, **not** a physical device.
 - `journal.RebalanceDemand` takes the effective purchased/FUP cap under the existing entitlement row lock, reads durable committed grants and pending operations, and queues **at most one** operation through `QueueRateMove`.
-- Incomplete operations block further planning. Missing, expired, unleased, rotating, and zero-demand observations freeze the grant at its already committed allocation; no capacity is silently reclaimed.
+- Disabled or expired entitlements are refused by the reconciler; their revocation is handled by the separate signed drain workflow. Incomplete operations block further planning. Missing, expired, unleased, rotating, and zero-demand observations freeze the grant at its already committed allocation; no capacity is silently reclaimed.
 - The first cycle queues reductions only. Later cycles require a new locked snapshot, and increases are queued only when the journal's signed rate barrier has been applied/finalized. A transport ACK alone does not free capacity.
 - `QueueRateMove` remains the final authorization gate, validating budget, revision and competing grants while committing the operation atomically. A concurrent writer or new FUP reduction turns a stale proposal into a safe `waiting` result.
 - PostgreSQL tests exercise two-phase move, replay before proof, unknown/stale demand, tightening budgets and invalid target inputs.
