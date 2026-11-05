@@ -175,6 +175,11 @@ func TestRemotePressureIsPinnedAndAtomicWithFUPAccounting(t *testing.T) {
 	if storedSeq != 4 {
 		t.Fatalf("retired rate signer updated active pressure stream: %d", storedSeq)
 	}
+	preview, err = PreviewDemand(ctx, db, entitlement.String())
+	checkError(t, err, nil)
+	if len(preview) != 0 {
+		t.Fatalf("former rate signing key still produced demand: %+v", preview)
+	}
 	// A pending rate move prevents the old telemetry from authorizing a
 	// fresh rate allocation, without forging an applied core acknowledgment.
 	_, err = db.ExecContext(ctx, `UPDATE elx_rate_grants
