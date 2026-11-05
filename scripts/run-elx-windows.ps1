@@ -10,7 +10,8 @@
 [CmdletBinding()]
 param(
     [string]$Workspace = (Join-Path $env:USERPROFILE 'ElX-test'),
-    [string]$Distro = ''
+    [string]$Distro = '',
+    [switch]$Full
 )
 $ErrorActionPreference = 'Stop'
 $branches = [ordered]@{
@@ -78,7 +79,8 @@ if (-not $linuxControl.StartsWith('/')) { throw "Unexpected translated path: '$l
 if ($linuxControl.Contains("'")) { throw 'Workspace path cannot contain an apostrophe.' }
 # Pass the Linux script as an argv path instead of a shell -c string.
 # This avoids Windows PowerShell quote mangling with embedded Bash commands.
-Write-Host "Running standalone ElX Control tests via WSL in: $linuxControl" -ForegroundColor Cyan
-& wsl.exe --distribution $Distro --exec bash "$linuxControl/scripts/elx-test-local.sh"
+$suite = if ($Full) { 'elx-test-all.sh' } else { 'elx-test-local.sh' }
+Write-Host "Running ElX tests ($suite) via WSL in: $linuxControl" -ForegroundColor Cyan
+& wsl.exe --distribution $Distro --exec bash "$linuxControl/scripts/$suite"
 if ($LASTEXITCODE -ne 0) { throw "ElX tests failed (exit code $LASTEXITCODE); inspect the WSL output above." }
-Write-Host 'PASS: ElX Windows/WSL suite' -ForegroundColor Green
+Write-Host "PASS: ElX Windows/WSL suite ($suite)" -ForegroundColor Green
