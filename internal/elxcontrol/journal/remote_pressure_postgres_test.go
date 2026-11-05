@@ -143,4 +143,26 @@ func TestRemotePressureIsPinnedAndAtomicWithFUPAccounting(t *testing.T) {
 	if countedUp != 20 || countedDown != 20 {
 		t.Fatalf("failed pressure transaction changed FUP usage: %d/%d", countedUp, countedDown)
 	}
+	// A core that is no longer the rate-grant signing authority can
+	// continue reporting signed billable bytes while reconciliation runs,
+	// but its pressure cannot authorize a new speed allocation.
+	replacementKey, _, err := ed25519.GenerateKey(rand.Reader)
+	checkError(t, err, nil)
+	_, err = db.ExecContext(ctx, `UPDATE elx_rate_grants
+		SET barrier_public_key=$3 WHERE node_id=$1 AND resource_id=$2`,
+		b.NodeID, resource, []byte(replacementKey))
+	checkError(t, err, nil)
+	validAfterRekey := remotePressureProof(signer, sub, challenge.Nonce, b.Incarnation,
+		6, 1, 30, 70, 140, 240, 5, 7, at.Add(time.Millisecond))
+	receipt, err = accounting.SubmitRemoteTelemetry(ctx, db, b.NodeID, b,
+		replayedUsage, validAfterRekey)
+	checkError(t, err, nil)
+	if receipt.Sequence != 5 {
+		t.Fatalf("billable usage failed during rate core rekey: %+v", receipt)
+	}
+	checkError(t, db.QueryRowContext(ctx, `SELECT sequence FROM elx_rate_pressure_samples
+		WHERE node_id=$1 AND resource_id=$2`, b.NodeID, resource).Scan(&storedSeq), nil)
+	if storedSeq != 4 {
+		t.Fatalf("retired rate signer updated active pressure stream: %d", storedSeq)
+	}
 }
