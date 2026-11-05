@@ -61,6 +61,11 @@ func PreviewDemand(ctx context.Context, db *sql.DB, entitlement string) ([]Deman
 		  p.previous_up_blocked_nanos,p.previous_down_blocked_nanos
 		FROM elx_rate_pressure_samples p
 		JOIN elx_rate_grants g USING(node_id,resource_id)
+		JOIN elx_rate_lease_acceptances lease
+		  ON lease.node_id=p.node_id AND lease.resource_id=p.resource_id
+		  AND lease.incarnation=p.incarnation AND lease.pressure_sequence=p.sequence
+		  AND lease.policy_revision=p.core_revision
+		  AND lease.policy_up=p.policy_up AND lease.policy_down=p.policy_down
 		JOIN elx_operation_targets t USING(node_id,resource_id)
 		JOIN elx_core_identities c ON c.node_id=p.node_id AND c.incarnation=p.incarnation
 		JOIN elx_entitlements e ON e.id=g.entitlement_id
@@ -75,6 +80,10 @@ func PreviewDemand(ctx context.Context, db *sql.DB, entitlement string) ([]Deman
 		  AND p.previous_policy_up=p.policy_up
 		  AND p.previous_policy_down=p.policy_down
 		  AND p.received_at>=clock_timestamp()-interval '10 seconds'
+		  AND lease.received_at>=clock_timestamp()-interval '10 seconds'
+		  AND lease.lease_expires_at>clock_timestamp()+interval '2 seconds'
+		  AND lease.ceiling_up>=g.committed_up
+		  AND lease.ceiling_down>=g.committed_down
 		  AND NOT EXISTS(SELECT 1 FROM elx_rate_moves m
 			WHERE m.node_id=p.node_id AND m.resource_id=p.resource_id AND NOT m.finalized)
 		  AND NOT EXISTS(SELECT 1 FROM elx_core_rotations rot
