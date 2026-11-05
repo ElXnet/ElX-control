@@ -225,7 +225,7 @@ func submitRemoteTelemetry(ctx context.Context, db *sql.DB, authenticatedNode uu
 		return Receipt{}, err
 	}
 	if len(pressure) != 0 {
-		if err := persistRemotePressure(ctx, tx, b, period, pressureSample); err != nil {
+		if err := persistRemotePressure(ctx, tx, b, period, pressureSample, ed25519.PublicKey(key)); err != nil {
 			return Receipt{}, err
 		}
 	}
