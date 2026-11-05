@@ -103,6 +103,17 @@ func persistRemotePressure(ctx context.Context, tx *sql.Tx, binding RemoteBindin
 		up_waiters,down_waiters,received_at)
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,clock_timestamp())
 		ON CONFLICT(node_id,resource_id) DO UPDATE SET
+		previous_sequence=elx_rate_pressure_samples.sequence,
+		previous_sampled_at=elx_rate_pressure_samples.sampled_at,
+		previous_core_revision=elx_rate_pressure_samples.core_revision,
+		previous_policy_up=elx_rate_pressure_samples.policy_up,
+		previous_policy_down=elx_rate_pressure_samples.policy_down,
+		previous_up_bytes=elx_rate_pressure_samples.up_bytes,
+		previous_down_bytes=elx_rate_pressure_samples.down_bytes,
+		previous_up_blocked_calls=elx_rate_pressure_samples.up_blocked_calls,
+		previous_down_blocked_calls=elx_rate_pressure_samples.down_blocked_calls,
+		previous_up_blocked_nanos=elx_rate_pressure_samples.up_blocked_nanos,
+		previous_down_blocked_nanos=elx_rate_pressure_samples.down_blocked_nanos,
 		sequence=EXCLUDED.sequence,sampled_at=EXCLUDED.sampled_at,
 		core_revision=EXCLUDED.core_revision,
 		policy_up=EXCLUDED.policy_up,policy_down=EXCLUDED.policy_down,
