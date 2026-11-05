@@ -78,5 +78,6 @@ export TMPDIR="$work"
     go build -o "$ELX_CONTROL_BIN" ./cmd/elx-control
     bash scripts/elx-policy-smoke.sh
     python3 scripts/elx-vless-stop-smoke.py
+    python3 tests/e2e/test_multinode.py
 )
 echo 'PASS: ElX local suite'
