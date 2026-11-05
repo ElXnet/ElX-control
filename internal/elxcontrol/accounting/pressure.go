@@ -1,6 +1,7 @@
 package accounting
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"database/sql"
@@ -16,7 +17,7 @@ import (
 // snapshot against rate grants and FUP. A missing/unbound/transitioning
 // source is simply unavailable for dynamic allocation, not billable usage.
 func persistRemotePressure(ctx context.Context, tx *sql.Tx, binding RemoteBinding,
-	period uuid.UUID, current corepolicy.PressureSample) error {
+	period uuid.UUID, current corepolicy.PressureSample, pinnedKey ed25519.PublicKey) error {
 	if current.Incarnation != binding.Incarnation ||
 		current.Sequence == 0 || current.Sequence > math.MaxInt64 ||
 		current.Revision == 0 || current.Revision > math.MaxInt64 {
@@ -52,20 +53,24 @@ func persistRemotePressure(ctx context.Context, tx *sql.Tx, binding RemoteBindin
 		return nil
 	}
 	var committedUp, committedDown int64
-	var pending bool
-	err = tx.QueryRowContext(ctx, `SELECT g.committed_up,g.committed_down,
+	var pending, rotating bool
+	var grantKey []byte
+	err = tx.QueryRowContext(ctx, `SELECT g.committed_up,g.committed_down,g.barrier_public_key,
 		EXISTS(SELECT 1 FROM elx_rate_moves m
-			WHERE m.node_id=g.node_id AND m.resource_id=g.resource_id AND NOT m.finalized)
+			WHERE m.node_id=g.node_id AND m.resource_id=g.resource_id AND NOT m.finalized),
+		EXISTS(SELECT 1 FROM elx_core_rotations c
+			WHERE c.node_id=g.node_id AND c.state='quiescing')
 		FROM elx_rate_grants g
 		WHERE g.node_id=$1 AND g.resource_id=$2`, binding.NodeID, resource.String).
-		Scan(&committedUp, &committedDown, &pending)
+		Scan(&committedUp, &committedDown, &grantKey, &pending, &rotating)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrStream
 	}
 	if err != nil {
 		return err
 	}
-	if pending || committedUp <= 0 || committedDown <= 0 ||
+	if pending || rotating || !bytes.Equal(grantKey, pinnedKey) ||
+		committedUp <= 0 || committedDown <= 0 ||
 		current.RateUp != uint64(committedUp) ||
 		current.RateDown != uint64(committedDown) {
 		// Do NOT claim a confirmed effective rate while the policy is
