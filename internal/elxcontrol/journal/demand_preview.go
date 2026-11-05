@@ -66,7 +66,8 @@ func PreviewDemand(ctx context.Context, db *sql.DB, entitlement string) ([]Deman
 		  AND lease.incarnation=p.incarnation AND lease.pressure_sequence=p.sequence
 		  AND lease.policy_revision=p.core_revision
 		  AND lease.policy_up=p.policy_up AND lease.policy_down=p.policy_down
-		JOIN elx_operation_targets t USING(node_id,resource_id)
+		JOIN elx_operation_targets t
+		  ON t.node_id=p.node_id AND t.resource_id=p.resource_id
 		JOIN elx_core_identities c ON c.node_id=p.node_id AND c.incarnation=p.incarnation
 		JOIN elx_entitlements e ON e.id=g.entitlement_id
 		WHERE g.entitlement_id=$1
