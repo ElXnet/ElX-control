@@ -19,7 +19,7 @@ cd D:\ElX-test\ElX-control
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-elx-windows.ps1 -Workspace "D:\ElX-test" -Distro Ubuntu
 
 # Full local verification, including ElXray's entire Go tree and runtime
-# benchmark, and ElX-ui's full make verify / race / node-e2e / vulncheck.
+# benchmark, and ElX-ui's verify / race / PostgreSQL / fuzz / node-e2e gates.
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-elx-windows.ps1 -Workspace "D:\ElX-test" -Distro Ubuntu -Full
 ```
 
@@ -28,6 +28,22 @@ Python 3, gcc, Git, OpenSSL, make, **Node >= 26**, npm, and **golangci-lint**.
 The frontend dependency installation and vulnerability checking require
 network access. The full runner exits nonzero for missing prerequisites or
 failed steps; it does not silently downgrade to a reduced suite.
+Install Playwright's Linux system dependencies once inside WSL with
+`cd ../ElX-ui/frontend && npx playwright install-deps chromium`.
+
+`-Full` runs `go vet ./...` before the long integration tests, checks the
+repository ownership boundary, runs the entire core suite with `-race`, installs the
+pinned Playwright browser, and audits production frontend dependencies. The
+panel's live PostgreSQL durability and migration cases use their own disposable
+PostgreSQL 16 container, separate from Control's PostgreSQL 18 container. Every
+selected PostgreSQL test must report PASS; skipped or renamed cases fail.
+
+For a Linux environment without Docker, supply `ELX_CONTROL_POSTGRES_DSN`,
+`XUI_DB_DSN` and `XUI_TEST_PG_DSN` for three separate disposable databases.
+The panel migration tests create and drop tables: never use production DSNs.
+`ELX_EXTERNAL_NETWORK_TESTS=1` additionally enables the upstream DNS/ECH/REALITY
+tests that require public Internet access. Unix-domain sockets must be allowed
+for the core transport and panel Control-proxy tests.
 
 ## Live E2E acceptance scope
 

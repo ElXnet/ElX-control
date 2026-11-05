@@ -101,6 +101,9 @@ jobs:
       - name: Validate reproducible full Go gate (fixtures + offline classification)
         run: |
           bash -n ElX-control/scripts/elxray-full-go-tests.sh
+          cd ElXray
+          go vet ./...
+          cd ..
           bash ElX-control/scripts/elxray-full-go-tests.sh ElXray
 
   local-suite:

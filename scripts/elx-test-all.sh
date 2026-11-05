@@ -49,14 +49,19 @@ step() {
     "$@"
     printf 'PASS: %s\n' "$current"
 }
-for tool in go git openssl python3 gcc docker node npm make; do
+for tool in go git openssl python3 gcc curl sha256sum node npm make; do
     command -v "$tool" >/dev/null || {
         echo "MISSING: $tool; required for full three-repository checks" >&2
         exit 1
     }
 done
-if ! docker info >/dev/null 2>&1 && [[ -z "${ELX_CONTROL_POSTGRES_DSN:-}" ]]; then
-    echo 'Docker Desktop unavailable; enable its WSL integration' >&2
+if [[ -n "${XUI_DB_DSN:-}" && -z "${XUI_TEST_PG_DSN:-}" ]] ||
+   [[ -z "${XUI_DB_DSN:-}" && -n "${XUI_TEST_PG_DSN:-}" ]]; then
+    echo 'Set both disposable panel PostgreSQL DSNs (XUI_DB_DSN and XUI_TEST_PG_DSN), or neither.' >&2
+    exit 1
+fi
+if [[ -z "${ELX_CONTROL_POSTGRES_DSN:-}" || -z "${XUI_DB_DSN:-}" ]] && ! docker info >/dev/null 2>&1; then
+    echo 'Docker unavailable; enable WSL integration or provide all three disposable PostgreSQL DSNs.' >&2
     exit 1
 fi
 node_major=$(node -p 'Number(process.versions.node.split(".")[0])')
@@ -73,6 +78,13 @@ echo "Control: $(git -C "$root" rev-parse HEAD)"
 echo "ElXray: $(git -C "$core" rev-parse HEAD)"
 echo "ElX-ui: $(git -C "$panel" rev-parse HEAD)"
 
+step "Repository ownership boundary" \
+    python3 "$root/scripts/check-repository-boundary.py" "$(dirname -- "$root")"
+step "Control full go vet" \
+    bash -c 'cd "$1" && go vet ./...' bash "$root"
+step "ElXray full go vet" \
+    bash -c 'cd "$1" && go vet ./...' bash "$core"
+
 # Control local suite owns a disposable PostgreSQL container when no DSN is
 # passed, and it tests signed policy, two nodes, VLESS, restart and denial.
 step "Control + ElXray integration and live multi-node E2E" \
@@ -80,8 +92,6 @@ step "Control + ElXray integration and live multi-node E2E" \
 
 step "ElXray Go tests with verified geodata and explicit network policy" \
     bash "$root/scripts/elxray-full-go-tests.sh" "$core"
-step "ElXray full go vet" \
-    bash -c 'cd "$1" && go vet ./...' bash "$core"
 step "ElXray Python fixture regressions" \
     bash -c 'cd "$1" && python3 -m unittest discover -s testing/subscriptionrate -p "test_*.py" -v' bash "$core"
 
@@ -100,10 +110,18 @@ step "ElXray runtime throughput and subscription-policy smoke" \
 
 step "Install ElX-ui pinned frontend dependencies" \
     bash -c 'cd "$1/frontend" && npm ci' bash "$panel"
+step "Install ElX-ui browser test runtime" \
+    bash -c 'cd "$1/frontend" && npx --no-install playwright install chromium' bash "$panel"
 step "ElX-ui complete local verify gate" \
     bash -c 'cd "$1" && make verify' bash "$panel"
 step "ElX-ui race detector" \
     bash -c 'cd "$1" && make race' bash "$panel"
+step "ElX-ui production dependency audit" \
+    bash -c 'cd "$1" && make audit-fe' bash "$panel"
+step "ElX-ui PostgreSQL durability and migration regressions" \
+    bash "$root/scripts/elx-ui-postgres-tests.sh" "$panel"
+step "ElX-ui security parser fuzz smoke" \
+    bash -c 'cd "$1" && go test -run "^$" -fuzz "FuzzParseLink$" -fuzztime=30s ./internal/util/link/ && go test -run "^$" -fuzz "FuzzDecodeCertPin$" -fuzztime=30s ./internal/web/runtime/' bash "$panel"
 step "ElX-ui master + node process E2E" \
     bash -c 'cd "$1" && make node-e2e' bash "$panel"
 step "ElX-ui vulnerability analysis" \
