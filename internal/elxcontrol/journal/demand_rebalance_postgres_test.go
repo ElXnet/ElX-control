@@ -1,6 +1,8 @@
 package journal
 
 import (
+	"context"
+	"database/sql"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"errors"
@@ -10,9 +12,8 @@ import (
 	"github.com/google/uuid"
 )
 
-func seedDemandRates(t *testing.T, budget Rate, amounts ...Rate) (string, []Target, ed25519.PrivateKey) {
+func seedDemandRates(t *testing.T, ctx context.Context, db *sql.DB, budget Rate, amounts ...Rate) (string, []Target, ed25519.PrivateKey) {
 	t.Helper()
-	ctx, db := testDatabase(t)
 	entitlement := uuid.NewString()
 	_, err := db.ExecContext(ctx, `INSERT INTO elx_entitlements(id,active_slots,valid_until)
 		VALUES ($1,2,clock_timestamp()+interval '1 hour')`, entitlement)
@@ -45,7 +46,7 @@ func trustedDemand(target Target, up, down int64) RateDemand {
 
 func TestDemandRebalanceWaitsForSignedReduction(t *testing.T) {
 	ctx, db := testDatabase(t)
-	entitlement, targets, private := seedDemandRates(t, Rate{100, 100}, Rate{50, 50}, Rate{50, 50})
+	entitlement, targets, private := seedDemandRates(t, ctx, db, Rate{100, 100}, Rate{50, 50}, Rate{50, 50})
 	demands := []RateDemand{trustedDemand(targets[0], 30, 30), trustedDemand(targets[1], 70, 70)}
 	result, err := RebalanceDemand(ctx, db, entitlement, demands)
 	checkError(t, err, nil)
@@ -89,7 +90,7 @@ func TestDemandRebalanceWaitsForSignedReduction(t *testing.T) {
 
 func TestDemandRebalancePreservesUnknownAndStaleGrants(t *testing.T) {
 	ctx, db := testDatabase(t)
-	entitlement, targets, _ := seedDemandRates(t, Rate{100, 100}, Rate{70, 40}, Rate{30, 60})
+	entitlement, targets, _ := seedDemandRates(t, ctx, db, Rate{100, 100}, Rate{70, 40}, Rate{30, 60})
 	// Only the second target is safely observable; the absent target still
 	// owns all 70/40 bytes per second of committed capacity.
 	out, err := RebalanceDemand(ctx, db, entitlement, []RateDemand{trustedDemand(targets[1], 100, 100)})
@@ -117,7 +118,7 @@ func TestDemandRebalancePreservesUnknownAndStaleGrants(t *testing.T) {
 
 func TestDemandRebalanceRejectsUnknownAndDuplicateTargets(t *testing.T) {
 	ctx, db := testDatabase(t)
-	entitlement, targets, _ := seedDemandRates(t, Rate{100, 100}, Rate{50, 50})
+	entitlement, targets, _ := seedDemandRates(t, ctx, db, Rate{100, 100}, Rate{50, 50})
 	valid := trustedDemand(targets[0], 100, 100)
 	invalidCases := [][]RateDemand{
 		{valid, valid},
