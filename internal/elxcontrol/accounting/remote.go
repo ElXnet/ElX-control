@@ -141,6 +141,23 @@ func IssueRemoteChallenge(ctx context.Context, db *sql.DB, authenticatedNode uui
 // high-watermark. A lost response is retried with a fresh challenge.
 func SubmitRemoteUsage(ctx context.Context, db *sql.DB, authenticatedNode uuid.UUID,
 	b RemoteBinding, evidence []byte) (Receipt, error) {
+	return submitRemoteTelemetry(ctx, db, authenticatedNode, b, evidence, nil)
+}
+
+// SubmitRemoteTelemetry atomically accepts existing billable usage plus a
+// separate, signed pressure observation under the SAME server-issued nonce.
+// Rejection of either proof rolls back both ingestion operations; a missing
+// optional pressure report cannot create a trusted demand observation.
+func SubmitRemoteTelemetry(ctx context.Context, db *sql.DB, authenticatedNode uuid.UUID,
+	b RemoteBinding, evidence, pressure []byte) (Receipt, error) {
+	if len(pressure) != 120+ed25519.SignatureSize {
+		return Receipt{}, ErrRemoteEvidence
+	}
+	return submitRemoteTelemetry(ctx, db, authenticatedNode, b, evidence, pressure)
+}
+
+func submitRemoteTelemetry(ctx context.Context, db *sql.DB, authenticatedNode uuid.UUID,
+	b RemoteBinding, evidence, pressure []byte) (Receipt, error) {
 	if db == nil || !b.valid(authenticatedNode) || len(evidence) != 48+ed25519.SignatureSize {
 		return Receipt{}, ErrSample
 	}
@@ -183,6 +200,17 @@ func SubmitRemoteUsage(ctx context.Context, db *sql.DB, authenticatedNode uuid.U
 	if err != nil || sample.Incarnation != b.Incarnation || sample.SampledAt.After(now.Add(5*time.Second)) {
 		return Receipt{}, ErrRemoteEvidence
 	}
+	var pressureSample corepolicy.PressureSample
+	if len(pressure) != 0 {
+		pressureSample, err = corepolicy.VerifyPressureEvidence(subscription, nonce,
+			ed25519.PublicKey(key), pressure)
+		if err != nil || pressureSample.Incarnation != b.Incarnation ||
+			pressureSample.Sequence <= uint64(sample.Sequence) ||
+			pressureSample.SampledAt.Before(sample.SampledAt) ||
+			pressureSample.SampledAt.After(now.Add(5*time.Second)) {
+			return Receipt{}, ErrRemoteEvidence
+		}
+	}
 	value := Sample{
 		NodeID: b.NodeID, ExecutorID: b.ExecutorID, Incarnation: b.Incarnation,
 		AccountingID: b.AccountingID, Generation: b.Generation, PeriodID: period,
@@ -195,6 +223,11 @@ func SubmitRemoteUsage(ctx context.Context, db *sql.DB, authenticatedNode uuid.U
 	result, err := ingestSample(ctx, tx, value)
 	if err != nil {
 		return Receipt{}, err
+	}
+	if len(pressure) != 0 {
+		if err := persistRemotePressure(ctx, tx, b, period, pressureSample); err != nil {
+			return Receipt{}, err
+		}
 	}
 	row, err := tx.ExecContext(ctx, `DELETE FROM elx_remote_usage_challenges
 		WHERE node_id=$1 AND executor_id=$2 AND incarnation=$3 AND accounting_id=$4
