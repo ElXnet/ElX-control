@@ -1,11 +1,24 @@
-# Verified ElXray limiter-pressure reads
+# Signed limiter-pressure ingestion
 
-`corepolicy.Client.ReadPressure(ctx,subscription,pinnedKey)` generates a fresh random challenge and reads `elx-pressure-bin` from the protected local ElXray gRPC socket. `VerifyPressureEvidence` validates the exact 184-byte Ed25519-signed record specified by ElXray `docs/electrium/SIGNED_PRESSURE_EVIDENCE.md` and rejects malformed values, future timestamps and samples older than ten seconds.
+ElXray generates `elx-pressure-bin` under a fresh 16-byte, lowercase-hex challenge, signs the 120-byte binary evidence with the core's durable Ed25519 key and appends the 64-byte signature. `corepolicy.ReadPressure` generates its own unpredictable challenge and validates the local response. `corepolicy.VerifyPressureEvidence` verifies pinned identity, signature, subscription, challenge, revision, timestamp freshness, limits and directional counters; `ValidatePressureProgress` rejects replays and core restarts without reconciliation.
 
-A sample includes the ElXray core incarnation, per-subscription sequence, policy revision, configured upload/download rates, cumulative payload bytes, blocked call counters, blocked nanoseconds and instantaneous waiter gauges. It is **not** the client's HWID, not proof of a leased node and not authorization to increase a grant.
+## Authenticated node → Control transport
 
-`ValidatePressureProgress(previous,next)` requires that the same already-pinned core incarnation produces a strictly newer sequence and timestamp with nondecreasing revision, payload and saturation counters. If a new boot appears, the caller must stop and reconcile the durable node identity before accepting its counters. The *calling* scheduler must persist the last accepted high-watermark in PostgreSQL and compare it under the entitlement lock. In-memory state alone is not sufficient across multiple Control instances.
+The existing FUP `SignedAccounting` mTLS channel is extended, not replaced.
 
-Next integration: relay this evidence alongside existing usage over the authenticated node transport; verify source node and journal `(node_id,resource_id)` assignment and `policy revision`; store high-watermark transactionally; compute a bounded requested rate from consecutive signed deltas, lease status and purchased FUP limit. Unknown, expired, unleased, stale, incomplete or monotonicity-violating evidence must result in a frozen allocation. Never expose a client-controlled `LeaseValid` flag or use an unverified sample as input to `journal.RebalanceDemand`.
+1. Control authenticates the node certificate, binds it to an assigned accounting stream, a core incarnation and a purchased grant, and generates the existing server-side nonce.
+2. The node retrieves its ordinary signed FUP usage sample (`elx-usage-bin`) **and**, when the core supports it, the separately signed `elx-pressure-bin` record using the SAME nonce.
+3. `usagetransport.PollOne` submits both as one message over authenticated mTLS. A core without signed pressure continues to submit FUP usage; this produces **no** trusted rate demand.
+4. Control checks the assigned node, subscription, pinned core signing key and nonce under the existing database transaction. It accounts billable usage and validates pressure in the SAME transaction; an invalid signature rolls back both.
+5. Under the entitlement's budget lock, Control only records a pressure sample if the source maps to a provisioned `(node_id,resource_id)`, no rate move is pending, and the core's reported upload/download policy matches the **committed** grant. Missing/mismatched observations are frozen/unknown rather than proof of free speed.
+6. `elx_rate_pressure_samples` (migration 018) persists the latest signed sequence, core incarnation, revisions, rates, independent counters and receipt time. A duplicate/regressed report or unapproved core restart fails closed. The journal transaction consumes the nonce atomically with both reports.
 
-**No automatic scheduler is activated by this PR.**
+This does **not** let a VPN subscription URL or external HTTP client manage, submit or invent device usage.
+
+## Next integration
+
+The verified remote accounting + pressure ingestion now exists, but **automatic rate scheduling is not enabled**. The remaining scheduler must read these durable samples under the entitlement lock, require fresh successful Control leases and a confirmed core revision, compute bounded directional demand from adjacent counter deltas, smooth it to avoid oscillations, and call `journal.RebalanceDemand` one operation at a time. A stale/missing sample is frozen, not a zero-demand observation.
+
+The sample table contains the latest high-watermark only, not a time-series. To measure a rate, the scheduler must persist a previous accepted sample separately or the table must be extended with a short history. Do not infer throughput by dividing a single lifetime payload counter by wall-clock time.
+
+Core reductions can only release global allocations after signed rate barriers, and the policy must be enforced by a healthy core lease. No production multi-node performance guarantees follow from these component tests alone.
