@@ -141,7 +141,7 @@ func IssueRemoteChallenge(ctx context.Context, db *sql.DB, authenticatedNode uui
 // high-watermark. A lost response is retried with a fresh challenge.
 func SubmitRemoteUsage(ctx context.Context, db *sql.DB, authenticatedNode uuid.UUID,
 	b RemoteBinding, evidence []byte) (Receipt, error) {
-	return submitRemoteTelemetry(ctx, db, authenticatedNode, b, evidence, nil)
+	return submitRemoteTelemetry(ctx, db, authenticatedNode, b, evidence, nil, nil)
 }
 
 // SubmitRemoteTelemetry atomically accepts existing billable usage plus a
@@ -153,11 +153,23 @@ func SubmitRemoteTelemetry(ctx context.Context, db *sql.DB, authenticatedNode uu
 	if len(pressure) != 120+ed25519.SignatureSize {
 		return Receipt{}, ErrRemoteEvidence
 	}
-	return submitRemoteTelemetry(ctx, db, authenticatedNode, b, evidence, pressure)
+	return submitRemoteTelemetry(ctx, db, authenticatedNode, b, evidence, pressure, nil)
+}
+
+// SubmitRemoteTelemetryWithLease verifies usage, limiter pressure and core
+// accepted-lease evidence under ONE nonce and ONE Control transaction.
+// A valid grant policy alone does not prove the actual core has a live lease.
+func SubmitRemoteTelemetryWithLease(ctx context.Context, db *sql.DB, authenticatedNode uuid.UUID,
+	b RemoteBinding, evidence, pressure, acceptance []byte) (Receipt, error) {
+	if len(pressure) != 120+ed25519.SignatureSize ||
+		len(acceptance) != 88+ed25519.SignatureSize {
+		return Receipt{}, ErrRemoteEvidence
+	}
+	return submitRemoteTelemetry(ctx, db, authenticatedNode, b, evidence, pressure, acceptance)
 }
 
 func submitRemoteTelemetry(ctx context.Context, db *sql.DB, authenticatedNode uuid.UUID,
-	b RemoteBinding, evidence, pressure []byte) (Receipt, error) {
+	b RemoteBinding, evidence, pressure, acceptance []byte) (Receipt, error) {
 	if db == nil || !b.valid(authenticatedNode) || len(evidence) != 48+ed25519.SignatureSize {
 		return Receipt{}, ErrSample
 	}
@@ -211,6 +223,18 @@ func submitRemoteTelemetry(ctx context.Context, db *sql.DB, authenticatedNode uu
 			return Receipt{}, ErrRemoteEvidence
 		}
 	}
+	var acceptedLease corepolicy.AcceptedLease
+	if len(acceptance) != 0 {
+		acceptedLease, err = corepolicy.VerifyLeaseAcceptance(subscription, nonce,
+			ed25519.PublicKey(key), acceptance, now)
+		if err != nil || acceptedLease.NodeID != b.NodeID ||
+			acceptedLease.Incarnation != b.Incarnation ||
+			acceptedLease.Revision != pressureSample.Revision ||
+			uint64(acceptedLease.AppliedUp) != pressureSample.RateUp ||
+			uint64(acceptedLease.AppliedDown) != pressureSample.RateDown {
+			return Receipt{}, ErrRemoteEvidence
+		}
+	}
 	value := Sample{
 		NodeID: b.NodeID, ExecutorID: b.ExecutorID, Incarnation: b.Incarnation,
 		AccountingID: b.AccountingID, Generation: b.Generation, PeriodID: period,
@@ -226,6 +250,12 @@ func submitRemoteTelemetry(ctx context.Context, db *sql.DB, authenticatedNode uu
 	}
 	if len(pressure) != 0 {
 		if err := persistRemotePressure(ctx, tx, b, period, pressureSample, ed25519.PublicKey(key)); err != nil {
+			return Receipt{}, err
+		}
+	}
+	if len(acceptance) != 0 {
+		if err := persistRemoteLeaseAcceptance(ctx, tx, b, period,
+			pressureSample, acceptedLease, ed25519.PublicKey(key)); err != nil {
 			return Receipt{}, err
 		}
 	}
