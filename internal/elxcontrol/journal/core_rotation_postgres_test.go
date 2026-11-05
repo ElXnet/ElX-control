@@ -33,6 +33,15 @@ func TestCoreRotationRequiresSignedDrainAndRetainsOccupiedSessions(t *testing.T)
 	_,err=db.ExecContext(ctx,`INSERT INTO elx_core_identities(node_id,incarnation,public_key)
 	 VALUES($1,$2,$3)`,node,oldBoot,[]byte(oldPub))
 	checkError(t,err,nil)
+	// A live pressure high-watermark belongs to the retiring core and may
+	// only be purged after cryptographic fencing and successful cutover.
+	_,err=db.ExecContext(ctx,`INSERT INTO elx_rate_pressure_samples
+	 (node_id,resource_id,incarnation,sequence,sampled_at,core_revision,
+	  policy_up,policy_down,up_bytes,down_bytes,up_blocked_calls,down_blocked_calls,
+	  up_blocked_nanos,down_blocked_nanos,up_waiters,down_waiters)
+	 VALUES($1,$2,$3,1,clock_timestamp(),1,500,500,1,1,0,0,0,0,0,0)`,
+	 node,res,oldBoot)
+	checkError(t,err,nil)
 	// The paid node inventory and rate epoch must rotate atomically too.
 	_,err=db.ExecContext(ctx,`INSERT INTO elx_node_inventory(node_id,incarnation,enabled)
 	 VALUES($1,$2,true)`,node,oldBoot)
@@ -146,6 +155,13 @@ func TestCoreRotationRequiresSignedDrainAndRetainsOccupiedSessions(t *testing.T)
 	checkError(t,err,nil)
 	if inventoryBoot!=newBoot||paidEpoch!=2{
 		t.Fatalf("paid node retained old core/epoch: boot=%s epoch=%d",inventoryBoot,paidEpoch)
+	}
+	var leftoverPressure int
+	err=db.QueryRowContext(ctx,`SELECT count(*) FROM elx_rate_pressure_samples
+	 WHERE node_id=$1 AND resource_id=$2`,node,res).Scan(&leftoverPressure)
+	checkError(t,err,nil)
+	if leftoverPressure!=0{
+		t.Fatalf("retired core still owned %d pressure high watermarks",leftoverPressure)
 	}
 	if _,err=session.IssueChallenge(ctx,db,intent);!errors.Is(err,session.ErrDenied){
 		t.Fatalf("retired incarnation admitted device after cutover: %v",err)
