@@ -170,6 +170,16 @@ func (c *proofCore) ReadLeaseAcceptanceEvidence(_ context.Context,
 	return append(payload, ed25519.Sign(c.key, transcript)...), nil
 }
 
+// Simulates a partially updated ElXray core that still supports signed
+// FUP and pressure but cannot attest the locally installed Control lease.
+type pressureWithoutLeaseCore struct{ inner *proofCore }
+func (c pressureWithoutLeaseCore) ReadUsageEvidence(ctx context.Context, sub, nonce string) ([]byte,error) {
+	return c.inner.ReadUsageEvidence(ctx,sub,nonce)
+}
+func (c pressureWithoutLeaseCore) ReadPressureEvidence(ctx context.Context, sub, nonce string) ([]byte,error) {
+	return c.inner.ReadPressureEvidence(ctx,sub,nonce)
+}
+
 type fakeProfileDrainer struct { key ed25519.PrivateKey }
 func (d fakeProfileDrainer) DrainProfile(_ context.Context, f session.Fence,
 	pinned ed25519.PublicKey) ([]byte,error) {
@@ -424,6 +434,25 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 	if acceptedPressureSeq!=2 || acceptedLeaseSeq!=17 {
 		t.Fatalf("lease acceptance not pinned to signed pressure: pressure=%d lease=%d",
 			acceptedPressureSeq,acceptedLeaseSeq)
+	}
+	// Newer signed pressure without an accepted-lease proof must not inherit
+	// the earlier proof, even when the same pinned core and mTLS node persist.
+	if _,err:=PollOne(ctx,good,pressureWithoutLeaseCore{inner:goodCore},binding);err!=nil {
+		t.Fatalf("older core lost signed FUP reporting: %v",err)
+	}
+	var newestPressureSeq int64
+	if err:=db.QueryRowContext(ctx,`SELECT sequence FROM elx_rate_pressure_samples
+		WHERE node_id=$1 AND resource_id=$2`,binding.NodeID,leaseResource).
+		Scan(&newestPressureSeq);err!=nil {t.Fatal(err)}
+	if newestPressureSeq<=acceptedPressureSeq {
+		t.Fatalf("optional lease test did not advance pressure: %d",newestPressureSeq)
+	}
+	var unchangedLeaseSeq int64
+	if err:=db.QueryRowContext(ctx,`SELECT pressure_sequence FROM elx_rate_lease_acceptances
+		WHERE node_id=$1 AND resource_id=$2`,binding.NodeID,leaseResource).
+		Scan(&unchangedLeaseSeq);err!=nil {t.Fatal(err)}
+	if unchangedLeaseSeq==newestPressureSeq {
+		t.Fatal("new pressure silently inherited the older Control lease proof")
 	}
 	// Replaying signed bytes without a new challenge can never charge again.
 	replay,_:=json.Marshal(submitRequest{Binding:binding,Evidence:goodCore.sig})
