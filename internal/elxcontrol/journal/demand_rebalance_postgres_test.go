@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -156,5 +157,86 @@ func TestDemandRebalanceDoesNotRegrantExpiredOrDisabledSubscription(t *testing.T
 	checkError(t, err, nil)
 	if queued != 0 {
 		t.Fatalf("inactive subscription queued %d unauthorized rate changes", queued)
+	}
+}
+
+func TestDemandRebalanceConcurrentWritersReserveOnlyOneOperation(t *testing.T) {
+	ctx, db := testDatabase(t)
+	db.SetMaxOpenConns(12)
+	entitlement, targets, _ := seedDemandRates(t, ctx, db, Rate{100, 100}, Rate{50, 50}, Rate{50, 50})
+	demands := []RateDemand{trustedDemand(targets[0], 30, 30), trustedDemand(targets[1], 70, 70)}
+	const workers = 8
+	begin := make(chan struct{})
+	results := make(chan struct {
+		out DemandRebalanceResult
+		err error
+	}, workers)
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-begin
+			out, err := RebalanceDemand(ctx, db, entitlement, demands)
+			results <- struct {
+				out DemandRebalanceResult
+				err error
+			}{out: out, err: err}
+		}()
+	}
+	close(begin)
+	wg.Wait()
+	close(results)
+	queued := 0
+	for result := range results {
+		if result.err != nil {
+			t.Fatalf("concurrent rebalance error: %v", result.err)
+		}
+		if result.out.OperationID != "" {
+			queued++
+			if result.out.Phase != "lower" || result.out.Target != targets[0] {
+				t.Fatalf("unexpected concurrent operation: %+v", result.out)
+			}
+		} else if result.out.Phase != "waiting" {
+			t.Fatalf("unsafe concurrent response: %+v", result.out)
+		}
+	}
+	if queued != 1 {
+		t.Fatalf("reserved %d journal operations, expected one", queued)
+	}
+	var count int
+	checkError(t, db.QueryRowContext(ctx,
+		"SELECT count(*) FROM elx_rate_moves WHERE NOT finalized").Scan(&count), nil)
+	if count != 1 {
+		t.Fatalf("journal has %d unfinished rate operations", count)
+	}
+}
+
+func TestDemandRebalanceResnapshotsTightenedBudget(t *testing.T) {
+	ctx, db := testDatabase(t)
+	entitlement, targets, private := seedDemandRates(t, ctx, db,
+		Rate{100, 100}, Rate{50, 50}, Rate{50, 50})
+	demands := []RateDemand{trustedDemand(targets[0], 30, 30), trustedDemand(targets[1], 70, 70)}
+	first, err := RebalanceDemand(ctx, db, entitlement, demands)
+	checkError(t, err, nil)
+	if first.Phase != "lower" {
+		t.Fatalf("expected initial reduction: %+v", first)
+	}
+	cmd, err := Pending(ctx, db, targets[0])
+	checkError(t, err, nil)
+	checkError(t, ConfirmApplied(ctx, db, targets[0], first.OperationID, 1, sha256.Sum256(cmd.Payload)), nil)
+	proof := ed25519.Sign(private, rateBarrierMessage(entitlement, targets[0],
+		first.OperationID, 1, 1, Rate{30, 30}))
+	checkError(t, FinalizeRateMove(ctx, db, entitlement, targets[0], first.OperationID, proof), nil)
+	// The earlier planning proposal is now obsolete: the subscription cap
+	// was tightened before B received any increase.
+	_, err = db.ExecContext(ctx,
+		"UPDATE elx_rate_budgets SET up_limit=80,down_limit=80 WHERE entitlement_id=$1",
+		entitlement)
+	checkError(t, err, nil)
+	next, err := RebalanceDemand(ctx, db, entitlement, demands)
+	checkError(t, err, nil)
+	if next.OperationID != "" || next.Phase != "stable" {
+		t.Fatalf("stale raise crossed tightened purchased cap: %+v", next)
 	}
 }
