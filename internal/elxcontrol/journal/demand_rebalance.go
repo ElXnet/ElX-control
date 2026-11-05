@@ -22,6 +22,8 @@ type RateDemand struct {
 	LeaseValid bool
 }
 
+var ErrInactiveRateEntitlement = errors.New("rate entitlement is disabled or expired")
+
 const (
 	// A cached observation is not proof that a node still owns its grant.
 	// The scheduler freezes missing, stale and unleased targets.
@@ -84,6 +86,18 @@ func RebalanceDemand(ctx context.Context, db *sql.DB, entitlement string, observ
 	var now time.Time
 	if err = tx.QueryRowContext(ctx, "SELECT clock_timestamp()").Scan(&now); err != nil {
 		return out, err
+	}
+	// A disabled or expired subscription cannot receive a rate increase
+	// simply because an old limiter continues reporting authenticated usage.
+	// The revocation/drain workflow handles disabling its existing grants.
+	var enabled bool
+	var validUntil time.Time
+	if err = tx.QueryRowContext(ctx, `SELECT enabled,valid_until FROM elx_entitlements
+		WHERE id=$1`, entitlement).Scan(&enabled, &validUntil); err != nil {
+		return out, err
+	}
+	if !enabled || !validUntil.After(now) {
+		return out, ErrInactiveRateEntitlement
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT g.node_id::text,g.resource_id::text,
 		g.committed_up,g.committed_down,t.revision,
