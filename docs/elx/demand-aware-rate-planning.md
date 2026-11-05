@@ -6,9 +6,9 @@ ElX Control owns the global upload and download budgets. Every amount is a signe
 
 `journal.QueueRateMove` is the only durable rate reservation path. `journal.FinalizeRateMove` releases reduced commitments only after the policy journal has an applied receipt and the pinned ElXray instance has signed the exact rate barrier. A successful transport ACK alone cannot free a rate commitment. The agent must check readback against the pinned core identity.
 
-`allocation.PlanRebalance` is a **pure planning function**, not an authorization API or an automatic runtime scheduler. It accepts the effective purchased/FUP budget and a current, trustworthy snapshot of device commitments. `Current` means the maximum committed/pending/unknown amount, **never measured usage**. If either direction is unknown or the core has lost contact, the entire grant is marked `Frozen`. Its existing commitment stays charged. Missing grants must not be interpreted as released.
+`allocation.PlanRebalance` is a **pure planning function**, not an authorization API or an automatic runtime scheduler. It accepts the effective purchased/FUP budget and a current, trustworthy snapshot of node/resource commitments. Each `TargetID` is a unique allocation identity mapped by the calling scheduler to the journal's `(node_id, resource_id)` pair. It is **not** a physical device identifier and must not be used for device counting. Distinct node/resource pairs need distinct target IDs. `Current` means the maximum committed/pending/unknown amount, **never measured usage**. If either direction is unknown or the core has lost contact, the entire grant is marked `Frozen`. Its existing commitment stays charged. Missing grants must not be interpreted as released.
 
-`Requested` is the demand estimator's bounded target, considering observed throughput, limiter wait/saturation, user-device cap and entitlement. `Weight` is positive and bounded. Neither measurement nor a request authorizes rate increases.
+`Requested` is the demand estimator's bounded target, considering observed throughput, limiter wait/saturation, per-resource caps and entitlement. `Weight` is positive and bounded. Neither measurement nor a request authorizes rate increases.
 
 ## Transitions
 
