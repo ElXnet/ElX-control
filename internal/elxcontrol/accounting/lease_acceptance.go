@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"database/sql"
 	"errors"
+	"time"
 
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/corepolicy"
 	"github.com/google/uuid"
@@ -88,9 +89,11 @@ func persistRemoteLeaseAcceptance(ctx context.Context, tx *sql.Tx, binding Remot
 		binding.NodeID,resource).Scan(&oldSeq)
 	if err!=nil && !errors.Is(err,sql.ErrNoRows) { return err }
 	if err==nil && accepted.Sequence < oldSeq { return ErrRemoteEvidence }
-	var currentTime sql.NullTime
-	if err=tx.QueryRowContext(ctx,`SELECT clock_timestamp()`).Scan(&currentTime);err!=nil{return err}
-	if !currentTime.Valid || !accepted.ExpiresAt.After(currentTime.Time.Add(2*1e9)) {
+	var currentTime time.Time
+	if err = tx.QueryRowContext(ctx, `SELECT clock_timestamp()`).Scan(&currentTime); err != nil {
+		return err
+	}
+	if !accepted.ExpiresAt.After(currentTime.Add(2 * time.Second)) {
 		return ErrRemoteEvidence
 	}
 	_,err=tx.ExecContext(ctx,`INSERT INTO elx_rate_lease_acceptances
