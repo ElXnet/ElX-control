@@ -361,6 +361,28 @@ def test_multinode():
                 lab.ping(flow0, b"live-after-reduction-0")
                 lab.ping(flow1, b"live-after-reduction-1")
                 print("PASS: two live VLESS nodes; signed traffic; rates changed without disconnect")
+                # Simultaneous independent client connections exercise both
+                # cores while policy revisions are live. This is concurrency
+                # acceptance, NOT a proof of purchased global rate limits.
+                def transfer_many(node, failures):
+                    try:
+                        for index in range(4):
+                            with lab.connect(node) as parallel:
+                                payload = (f"node-{node}-client-{index}-".encode() * 64)
+                                lab.ping(parallel, payload)
+                    except BaseException as exc:
+                        failures.append((node, str(exc)))
+                failures = []
+                workers = [threading.Thread(target=transfer_many, args=(node, failures))
+                           for node in range(2) for _ in range(3)]
+                for worker in workers:
+                    worker.start()
+                for worker in workers:
+                    worker.join(timeout=15)
+                require(not any(worker.is_alive() for worker in workers),
+                        "parallel VLESS transfers stalled")
+                require(not failures, f"parallel VLESS transfer failures: {failures}")
+                print("PASS: concurrent VLESS client flows across two live nodes")
 
                 lab.enqueue(0, 1, 150000, 160000, disabled=True)
                 lab.await_revision(0, 3, disabled=True)
