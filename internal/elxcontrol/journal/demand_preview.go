@@ -49,6 +49,22 @@ func PreviewDemand(ctx context.Context, db *sql.DB, entitlement string) ([]Deman
 	if err := tx.QueryRowContext(ctx, "SELECT clock_timestamp()").Scan(&now); err != nil {
 		return nil, err
 	}
+	out, err := previewDemandTx(ctx, tx, entitlement, limit, now)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// previewDemandTx reads signed, lease-attested demand while the caller holds
+// the entitlement lock. The scheduler must keep this transaction open until
+// its rate operation is durably queued, so an expired/replaced core cannot
+// authorize a stale grant in a separate transaction.
+func previewDemandTx(ctx context.Context, tx *sql.Tx, entitlement string,
+	limit Rate, now time.Time) ([]DemandEstimate, error) {
 	rows, err := tx.QueryContext(ctx, `
 		SELECT p.node_id::text,p.resource_id::text,p.incarnation::text,
 		  p.sequence,p.sampled_at,p.core_revision,p.policy_up,p.policy_down,
@@ -180,8 +196,5 @@ func PreviewDemand(ctx context.Context, db *sql.DB, entitlement string) ([]Deman
 		return nil, err
 	}
 	rows.Close()
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
 	return out, nil
 }

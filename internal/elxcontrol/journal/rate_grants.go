@@ -28,7 +28,7 @@ func (r Rate) valid() bool {
 // policy operation in the same transaction. Provisioning must establish the
 // baseline against the live core before enabling a target in this ledger.
 func QueueRateMove(ctx context.Context, db *sql.DB, entitlement string, target Target, operationID string, expected int64, desired Rate) (int64, error) {
-	if !desired.valid() || expected < 0 || expected > math.MaxInt64-2 {
+	if db == nil || !desired.valid() || expected < 0 || expected > math.MaxInt64-2 {
 		return 0, ErrInvalid
 	}
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
@@ -40,6 +40,24 @@ func QueueRateMove(ctx context.Context, db *sql.DB, entitlement string, target T
 	if err != nil {
 		return 0, err
 	}
+	rev, err := queueRateMoveTx(ctx, tx, entitlement, target, operationID, expected, desired, limit)
+	if err != nil {
+		return 0, err
+	}
+	return rev, tx.Commit()
+}
+
+// queueRateMoveTx performs authorization and durable reservation while the
+// caller still holds lockBudget's entitlement row lock. Internal schedulers
+// use this to keep verified demand, leader epoch, FUP budget and enqueue in
+// ONE transaction. No caller may commit the grant based on an earlier read.
+func queueRateMoveTx(ctx context.Context, tx *sql.Tx, entitlement string, target Target,
+	operationID string, expected int64, desired, limit Rate) (int64, error) {
+	if !validRateTarget(target) || !desired.valid() ||
+		expected < 0 || expected > math.MaxInt64-2 {
+		return 0, ErrInvalid
+	}
+	var err error
 	// A quiescing core may only receive signed disable/drain operations.
 	// Positive rates cannot be queued while the old core is being fenced.
 	if desired.Up>0 || desired.Down>0 {
@@ -77,7 +95,7 @@ func QueueRateMove(ctx context.Context, db *sql.DB, entitlement string, target T
 		if err != nil {
 			return 0, err
 		}
-		return rev, tx.Commit()
+		return rev, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return 0, err
@@ -125,7 +143,7 @@ func QueueRateMove(ctx context.Context, db *sql.DB, entitlement string, target T
 	if err != nil {
 		return 0, err
 	}
-	return rev, tx.Commit()
+	return rev, nil
 }
 
 func lockBudget(ctx context.Context, tx *sql.Tx, entitlement string) (Rate, error) {

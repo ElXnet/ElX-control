@@ -53,6 +53,24 @@ type DemandRebalanceResult struct {
 // stale, unleased and quiescing targets remain frozen at their durable
 // commitments. The journal, not this planner, authorizes each rate change.
 func RebalanceDemand(ctx context.Context, db *sql.DB, entitlement string, observations []RateDemand) (DemandRebalanceResult, error) {
+	return rebalanceDemand(ctx, db, entitlement, observations, nil)
+}
+
+// RebalanceAttestedDemand is the production scheduler's ONLY grant entrypoint.
+// It derives demand from signed core evidence, current FUP, the actual
+// core-accepted lease and the pinned grant key *inside* the rate journal
+// transaction. Caller-supplied Requested, LeaseValid or weight values are not
+// accepted. A transactionally fenced PostgreSQL leader epoch is mandatory.
+func RebalanceAttestedDemand(ctx context.Context, db *sql.DB, entitlement string,
+	leader SchedulerLease) (DemandRebalanceResult, error) {
+	if !validSchedulerLease(leader) || leader.EntitlementID != entitlement {
+		return DemandRebalanceResult{}, ErrSchedulerFenced
+	}
+	return rebalanceDemand(ctx, db, entitlement, nil, &leader)
+}
+
+func rebalanceDemand(ctx context.Context, db *sql.DB, entitlement string,
+	observations []RateDemand, leader *SchedulerLease) (DemandRebalanceResult, error) {
 	out := DemandRebalanceResult{Phase: "stable"}
 	id, err := uuid.Parse(entitlement)
 	if db == nil || err != nil || id == uuid.Nil || id.String() != entitlement || len(observations) > maxRateTargets {
@@ -87,13 +105,31 @@ func RebalanceDemand(ctx context.Context, db *sql.DB, entitlement string, observ
 	if err = tx.QueryRowContext(ctx, "SELECT clock_timestamp()").Scan(&now); err != nil {
 		return out, err
 	}
+	if leader != nil {
+		// The leader epoch and the durable telemetry are checked under the
+		// same budget lock that serializes this entitlement's rate moves.
+		if err := verifySchedulerLeaseTx(ctx, tx, *leader, now); err != nil {
+			return out, err
+		}
+		verified, err := previewDemandTx(ctx, tx, entitlement, limit, now)
+		if err != nil {
+			return out, err
+		}
+		input = make(map[Target]RateDemand, len(verified))
+		for _, sample := range verified {
+			input[sample.Target] = RateDemand{
+				Target: sample.Target, Requested: sample.Requested,
+				Weight: 1, ObservedAt: sample.ObservedAt, LeaseValid: true,
+			}
+		}
+	}
 	// A disabled or expired subscription cannot receive a rate increase
 	// simply because an old limiter continues reporting authenticated usage.
 	// The revocation/drain workflow handles disabling its existing grants.
 	var enabled bool
 	var validUntil time.Time
 	if err = tx.QueryRowContext(ctx, `SELECT enabled,valid_until FROM elx_entitlements
-		WHERE id=$1`, entitlement).Scan(&enabled, &validUntil); err != nil {
+		WHERE id=$1 FOR SHARE`, entitlement).Scan(&enabled, &validUntil); err != nil {
 		return out, err
 	}
 	if !enabled || !validUntil.After(now) {
@@ -175,9 +211,8 @@ func RebalanceDemand(ctx context.Context, db *sql.DB, entitlement string, observ
 	if len(input) != 0 {
 		return out, ErrInvalid
 	}
-	if err = tx.Commit(); err != nil {
-		return out, err
-	}
+	// Keep the entitlement and (when attested) leader row locks until the
+	// computed rate operation has been reserved and inserted below.
 	if waiting {
 		out.Phase = "waiting"
 		return out, nil
@@ -201,6 +236,22 @@ func RebalanceDemand(ctx context.Context, db *sql.DB, entitlement string, observ
 	if next == nil {
 		return out, nil
 	}
+	// Revalidate the same leader epoch against a FRESH database time just
+	// before queuing. A slow plan must never enqueue after its lease expires.
+	// The entitlement lock excludes concurrent telemetry/FUP/leader updates;
+	// the extra time check closes a slow-transaction expiry gap.
+	if leader != nil {
+		var latest time.Time
+		if err := tx.QueryRowContext(ctx, "SELECT clock_timestamp()").Scan(&latest); err != nil {
+			return DemandRebalanceResult{}, err
+		}
+		if err := verifySchedulerLeaseTx(ctx, tx, *leader, latest); err != nil {
+			return DemandRebalanceResult{}, err
+		}
+		if latest.Sub(now) > maxDemandAge {
+			return DemandRebalanceResult{Phase:"waiting"}, nil
+		}
+	}
 	grant := current[next.TargetID]
 	desired := Rate{Up: next.To.Up, Down: next.To.Down}
 	if !desired.valid() {
@@ -210,9 +261,13 @@ func RebalanceDemand(ctx context.Context, db *sql.DB, entitlement string, observ
 	if err != nil {
 		return DemandRebalanceResult{}, err
 	}
-	_, err = QueueRateMove(ctx, db, entitlement, grant.target, op.String(), grant.rev, desired)
+	_, err = queueRateMoveTx(ctx, tx, entitlement, grant.target, op.String(),
+		grant.rev, desired, limit)
 	switch {
 	case err == nil:
+		if err := tx.Commit(); err != nil {
+			return DemandRebalanceResult{}, err
+		}
 		out.OperationID, out.Target, out.Desired = op.String(), grant.target, desired
 		return out, nil
 	case errors.Is(err, ErrPending), errors.Is(err, ErrRevision), errors.Is(err, ErrRateBudget):
