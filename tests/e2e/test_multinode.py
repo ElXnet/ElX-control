@@ -258,7 +258,7 @@ class Lab:
                           "-node", self.node_ids[node], "-resource", self.resource_id,
                           "-operation", op, "-expected", str(expected),
                           "-up", str(up), "-down", str(down),
-                          "-disabled", str(disabled).lower()],
+                          f"-disabled={str(disabled).lower()}"],
                          env=self.env(), success=success)
         return op, result
 
