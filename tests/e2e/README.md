@@ -70,3 +70,51 @@ under simultaneous upload/download on both nodes; packet loss and
 partition/failover of Control/Postgres and their leader epochs; hardware-
 specific TUN/Vision/UDP behavior; load and soak testing with up to 200 users.
 Those checks must not be marked passed merely because this script is green.
+
+
+## P0 two-node saturation and disruption suite
+
+`test_rate_partition.py` is run immediately after `test_multinode.py`
+by the same local/CI suite. It boots a disposable independent test lab
+with **two real ElXray cores, two VLESS/SOCKS clients, two Control agents
+and PostgreSQL**. Both clients send and receive sustained traffic at once.
+Their explicitly allocated upload and download grants sum to 300,000 B/s
+per direction and the measured combined rate must stay below 125% of
+that ceiling. The 25% allowance is a deterministic test tolerance, not an
+allowed commercial tariff oversubscription; token buckets permit an
+initial 8192-byte burst per node.
+
+The same scenario stops the Control mTLS service, queues durable policy
+changes in PostgreSQL, checks the agents cannot apply them while the
+authority is unreachable, and confirms both agents apply the correct
+revision after restoration. It also checks that a Control instance
+pointed at an unavailable PostgreSQL endpoint refuses to become an
+alternate policy authority.
+
+The PostgreSQL test `TestTwoDeviceSlotsAcrossNodes` concurrently
+reserves two device ownership slots from **two distinct device keys on
+different nodes**, rejects third/fourth devices, refuses to free an
+occupied slot on a mere revoke request, requires an exact core-signed
+fence, and races two replacement devices for the one released slot.
+
+**Do not confuse these tests with a completed P0 deployment acceptance:**
+
+- The bandwidth test checks enforcement of allocated per-node grants
+  under real traffic. It does **not** wire signed pressure evidence and
+  leases into the automatic multi-node demand scheduler. Scheduler
+  atomicity and signed rate barriers are covered separately by journal
+  integration tests. End-to-end scheduler auto-reallocation remains open.
+- The signed-slot test exercises Control admission and ownership, not
+  the integration of a running remote device's VPN handshake with
+  `ReserveWithProof`. No **physical two-PC acceptance** is asserted.
+- The outage test runs **without mandatory Control leases**: established
+  VPN flows deliberately remain connected while Control is unreachable.
+  **Fail-closed on a revoked subscription when Control is partitioned
+  is not proven here.** Test mandatory signed lease expiry/renewal
+  independently before production.
+- A non-responsive PostgreSQL listener is a control-plane startup
+  failure, not a real cluster split-brain / packet-loss test. Repeated
+  leader election and stale epoch rejection are checked in dedicated
+  journal tests; full network partition and takeover remain open.
+
+All these remaining gates must stay visible in the release report.
