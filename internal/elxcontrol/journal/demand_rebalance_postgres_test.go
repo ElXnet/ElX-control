@@ -138,3 +138,23 @@ func TestDemandRebalanceRejectsUnknownAndDuplicateTargets(t *testing.T) {
 		t.Fatalf("idle VPN was disabled by zero observed traffic: %+v", result)
 	}
 }
+
+func TestDemandRebalanceDoesNotRegrantExpiredOrDisabledSubscription(t *testing.T) {
+	ctx, db := testDatabase(t)
+	entitlement, targets, _ := seedDemandRates(t, ctx, db, Rate{100, 100}, Rate{50, 50})
+	demand := trustedDemand(targets[0], 100, 100)
+	_, err := db.ExecContext(ctx, "UPDATE elx_entitlements SET enabled=false WHERE id=$1", entitlement)
+	checkError(t, err, nil)
+	_, err = RebalanceDemand(ctx, db, entitlement, []RateDemand{demand})
+	checkError(t, err, ErrInactiveRateEntitlement)
+	_, err = db.ExecContext(ctx, "UPDATE elx_entitlements SET enabled=true,valid_until=clock_timestamp()-interval '1 second' WHERE id=$1", entitlement)
+	checkError(t, err, nil)
+	_, err = RebalanceDemand(ctx, db, entitlement, []RateDemand{demand})
+	checkError(t, err, ErrInactiveRateEntitlement)
+	var queued int
+	err = db.QueryRowContext(ctx, "SELECT count(*) FROM elx_rate_moves").Scan(&queued)
+	checkError(t, err, nil)
+	if queued != 0 {
+		t.Fatalf("inactive subscription queued %d unauthorized rate changes", queued)
+	}
+}
