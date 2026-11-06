@@ -95,6 +95,11 @@ def run():
         traffic = None
         try:
             lab = LeasedLab(Path(temp))
+            # The shared echo fixture closes idle sockets after 6 seconds.
+            # This test holds a real, initially idle VPN connection across
+            # telemetry collection and asynchronous rate operations, so the
+            # echo endpoint must not terminate it before the core does.
+            lab.echo.idle_timeout = 120
             root = Path(__file__).resolve().parents[2]
             compiled = subprocess.run(
                 ["go", "build", "-o", str(lab.folder / "rate-scheduler-fixture"),
@@ -135,8 +140,14 @@ def run():
                       env={**lab.env(), "ELX_RATE_SCHEDULER_ENABLED": "1"})
             lower, higher = await_redistribution(lab)
             require(not failures, f"VPN traffic failed during scheduler move: {failures}")
-            lab.ping(connections[0], b"idle-session-kept-after-lower")
-            lab.ping(connections[1], b"busy-session-kept-after-raise")
+            for i, message in enumerate((b"idle-session-kept-after-lower",
+                                         b"busy-session-kept-after-raise")):
+                try:
+                    lab.ping(connections[i], message)
+                except BaseException as exc:
+                    raise AssertionError(
+                        f"node {i} established VPN flow failed after redistribution: {exc}"
+                    ) from exc
             print(f"PASS: automatic signed reduce/barrier/raise "
                   f"node0={lower} node1={higher}; upload/download budget 500000 B/s",
                   flush=True)
