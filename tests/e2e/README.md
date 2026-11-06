@@ -92,6 +92,28 @@ specific TUN/Vision/UDP behavior; load and soak testing with up to 200 users.
 Those checks must not be marked passed merely because this script is green.
 
 
+
+### P0 live signed scheduler redistribution gate
+
+`test_live_scheduler.py` is included in the ordinary integration suite. It
+starts two real loopback VLESS cores, a Control mTLS authority and disposable
+PostgreSQL, provisions *pinned* grants and two live signed-usage streams,
+waits for actual core-signed pressure **and** installed-lease acceptance from
+both nodes, then saturates one node in upload and download. A separate
+leader-fenced `serve-scheduler` process must reduce the idle node, obtain
+and finalize the signed lower-rate barrier through its agent, and raise the
+busy node without exceeding the 500000 B/s test entitlement in either
+direction. Both original VPN flows must remain usable throughout.
+
+The scenario is run from `scripts/elx-test-local.sh` and therefore also
+from Windows/WSL `-Full` and the GitHub local-suite job. A pass confirms
+*dynamic* signed two-node rate redistribution, unlike the earlier manually
+allocated `test_rate_partition.py`. It does not assert zero token-bucket
+burst, 100% WAN line-rate fairness, device-handshake identity, hardware TUN,
+Vision, UDP, full FUP rollover, real PostgreSQL HA, or commercial readiness.
+The scheduler remains opt-in and **must not be enabled in production** until
+those remaining gates pass.
+
 ## P0 two-node saturation and disruption suite
 
 `test_rate_partition.py` is run immediately after `test_multinode.py`
