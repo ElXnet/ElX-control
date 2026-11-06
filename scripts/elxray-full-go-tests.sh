@@ -29,7 +29,7 @@ done
 if [[ "${ELX_EXTERNAL_NETWORK_TESTS:-0}" == "1" ]]; then
     echo 'Running ALL ElXray Go tests, including Internet-dependent DNS/ECH/REALITY tests.'
     echo 'Public endpoints may time out. A failure is still a test failure.'
-    go test -count=1 -timeout 30m ./...
+    go test -race -count=1 -timeout 30m ./...
 else
     # These upstream tests depend on live public DNS, ECH endpoints or a
     # particular Internet route (e.g., google.com:443 for REALITY). On WSL
@@ -40,5 +40,5 @@ else
     echo 'Running deterministic ElXray Go tests with checked geodata assets.'
     echo "SKIPPED (requires public network): $skip"
     echo 'Opt in to the public-network tests: ELX_EXTERNAL_NETWORK_TESTS=1'
-    go test -count=1 -timeout 15m -skip "$skip" ./...
+    go test -race -count=1 -timeout 30m -skip "$skip" ./...
 fi
