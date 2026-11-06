@@ -79,7 +79,7 @@ def read_exact(sock, size):
 
 class EchoHandler(socketserver.BaseRequestHandler):
     def handle(self):
-        self.request.settimeout(6)
+        self.request.settimeout(getattr(self.server, "idle_timeout", 6))
         try:
             while True:
                 block = self.request.recv(16384)
