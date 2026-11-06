@@ -25,7 +25,7 @@ else
         -e POSTGRES_USER=elx -e POSTGRES_PASSWORD=elx_panel_test postgres:16)
     ready=false
     for _ in {1..60}; do
-        if docker exec "$container" pg_isready -U elx -d postgres >/dev/null 2>&1; then ready=true; break; fi
+        if docker exec "$container" pg_isready -h 127.0.0.1 -U elx -d postgres >/dev/null 2>&1; then ready=true; break; fi
         sleep 1
     done
     if [[ "$ready" != true ]]; then echo 'Panel PostgreSQL did not become ready' >&2; exit 1; fi
