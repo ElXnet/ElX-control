@@ -84,6 +84,8 @@ step "Control full go vet" \
     bash -c 'cd "$1" && go vet ./...' bash "$root"
 step "ElXray full go vet" \
     bash -c 'cd "$1" && go vet ./...' bash "$core"
+step "ElXray vulnerability analysis" \
+    bash -c 'cd "$1" && go run golang.org/x/vuln/cmd/govulncheck@latest ./...' bash "$core"
 
 # Control local suite owns a disposable PostgreSQL container when no DSN is
 # passed, and it tests signed policy, two nodes, VLESS, restart and denial.
