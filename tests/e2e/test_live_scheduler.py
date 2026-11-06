@@ -98,7 +98,7 @@ def run():
             root = Path(__file__).resolve().parents[2]
             compiled = subprocess.run(
                 ["go", "build", "-o", str(lab.folder / "rate-scheduler-fixture"),
-                 "./tests/e2e/rate_scheduler_fixture.go"],
+                 "./tests/e2e/rate_scheduler_fixture"],
                 cwd=root, env=lab.env(), capture_output=True, text=True,
                 timeout=120, check=False,
             )
