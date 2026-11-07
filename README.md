@@ -1,45 +1,87 @@
 # ElX Control
 
-Standalone Go control-plane module for the ElX VPN service. **ElX-control is the sole source of truth** for the Control runtime, SQL migrations, agent, authentication, FUP and policy journal. The canonical integration branch is `main`. The former embedded mirror has been deleted from ElX-ui; the panel contains only its Unix-socket HTTP adapters and customer/admin frontend.
+[![Проверки Control](https://github.com/ElXnet/ElX-control/actions/workflows/elx-control-integration.yml/badge.svg?branch=main)](https://github.com/ElXnet/ElX-control/actions/workflows/elx-control-integration.yml)
+[![Проверки трёх репозиториев](https://github.com/ElXnet/ElX-control/actions/workflows/elx-three-repository-full.yml/badge.svg?branch=main)](https://github.com/ElXnet/ElX-control/actions/workflows/elx-three-repository-full.yml)
+[![Лицензия GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
-## Implemented boundaries
+**ElX Control** — самостоятельный управляющий сервис VPN-платформы **ElX (ElectriumX)** на Go и PostgreSQL. Он координирует подписки, активные сессии и ограничения скорости между VPN-нодами, доставляет проверяемые политики в [ElXray](https://github.com/ElXnet/ElXray) и предоставляет защищённый внутренний интерфейс для [ElX-ui](https://github.com/ElXnet/ElX-ui).
 
-- Durable PostgreSQL policy journal, revisions, and operation-id replay protection.
-- mTLS-authenticated node delivery and pinned Ed25519 policy readback.
-- Durable session-slot reservations and one-time device proofs.
-- Authorized, durable VLESS-profile drain queue: mTLS agent executes core deny+drain, verifies pinned Ed25519 proof, then releases only the matching session generation.
-- Cumulative ElXray usage readback, nonce-bound remote signed accounting over mTLS, per-period FUP events and a queueing FUP reconciler.
-- Per-entitlement shared upload/download rate grants and automatic core-signed deny-and-drain barriers before releasing reduced commitments.
-- Calendar-aware FUP rollover (day/week/month) with atomic source-watermark inheritance and dynamic current-period collection.
-- Long-running mTLS node policy, session-drain, signed usage and 15-second lease agents, FUP maintenance loop, RAWI API client, and tested allocation primitives.
-- Canonical policy-manifest driven FUP accounting: automatic grant-to-subscription mapping from pinned core keys/epochs, deterministic assignment identifiers, and live node-scoped assignment discovery over mTLS (static file is optional).
+> **Статус:** серверная архитектура реализована и проходит интеграционные испытания. Наличие тестов и объединённых PR не означает готовности коммерческого развёртывания. Автоматический планировщик полосы **отключён по умолчанию**.
 
-See `docs/elx/policy-smoke.ru.md` for Windows/WSL, PostgreSQL and two-node live VLESS integration checks.
+## Место в системе
 
-Signed FUP provisioning: `elx-control provision-usage` links one purchased node rate grant to a pinned ElXray identity, a current FUP period and an authenticated accounting stream. `elx-control usage-coverage` reports bound, primed and fresh sources. The first signed sample establishes a watermark instead of charging historical traffic. See `docs/elx/signed-fup-provisioning.ru.md` for operator procedures and limitations.
-
-## Windows quick start
-
-With Git for Windows, WSL Ubuntu, Docker Desktop and a Go toolchain installed, download and execute:
-
-```powershell
-$runner = Join-Path $env:TEMP 'run-elx-windows.ps1'
-Invoke-WebRequest 'https://raw.githubusercontent.com/ElXnet/ElX-control/main/scripts/run-elx-windows.ps1' -OutFile $runner
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runner -Workspace 'C:\ElX-test'
+```text
+ElX-ui (админ-панель и /lk)
+        │ HTTP через защищённый Unix-сокет
+        ▼
+ElX Control (PostgreSQL, журнал, тарифные права, FUP)
+        │ mTLS · подписанные политики/показания
+        ├─────────────────────┐
+        ▼                     ▼
+агент ноды A             агент ноды B
+        │ локальный API        │ локальный API
+        ▼                     ▼
+     ElXray A               ElXray B
 ```
 
-This checks the **standalone** Control module. Scripts create an isolated PostgreSQL test database; they do not change a VPS.
+**Граница исходников:** Control, его агенты, SQL-миграции, журнал и правила владения сессиями находятся **только здесь**. В ElX-ui остаются интерфейсы, HTTP-адаптеры и worker выдачи профилей; ElXray самостоятельно проверяет и исполняет полученные ограничения. Встраивать копию Control в панель не требуется.
 
-## Integration still required
+## Реализовано
 
-Core-side signed VLESS deny/drain evidence, Control-authorized automatic session release, signed accounting, 15-second fail-closed network-partition leases, and rate-reduction barriers have been implemented in the working branches. For production, mandatory lease mode must be enabled on both core and node agent with provisioned trust anchors and the persisted policy store. Remaining integration: verified provisioning that binds each device's authenticated VLESS profile to its entitlement, billing, email recovery/verification and production-grade per-IP auth throttling, node/key rotation and recovery procedures, and multi-device failure/load tests. The invite-only customer cabinet routes and ownership checks exist in the integration branch but still need release verification. Do not infer device identity from IP addresses, HWIDs or copied subscription URLs. Local token buckets permit a bounded burst; the grant ledger enforces conservative allocations, not mathematically zero packet-level bursts.
+- **Подписки и сессии:** долговременные права (entitlements), отдельные устройства/профили, атомарное резервирование слотов, одноразовые криптографические device proofs и защита от повторов. Подписанный drain освобождает слот **после** подтверждения нужного поколения сессии ядром.
+- **Согласованный бюджет скорости:** независимые общие лимиты upload/download на подписку; журнал нодовых назначений, ревизий, операций и строгий порядок **уменьшить → получить подписанный barrier → перераспределить**.
+- **Динамическое перераспределение:** планировщик на основе подписанных показаний насыщения лимитера, свежего подтверждения принятого ядром lease и fenced-лидерства PostgreSQL. Он не доверяет значениям спроса из клиента и по умолчанию не запускается.
+- **FUP:** дневные, недельные и месячные календарные периоды, пороги трафика, независимые понижения upload/download, подписанный накопительный учёт с защитой от replay и корректной начальной отметкой.
+- **Отказоустойчивое применение:** durable journal/outbox, mTLS-связь с нодами, проверка закреплённого ключа Ed25519 и экземпляра ядра, повторная доставка после сбоя, краткосрочные разрешения (lease), fail-closed при их обязательном режиме.
+- **Личный кабинет и выдача доступа:** управление правами, приглашения, авторизация ЛК через интеграцию с ElX-ui, заказы и отдельный вход для **подписанных** подтверждений оплаты. Банковская интеграция и секреты платёжного провайдера остаются в отдельном payment-verifier.
+- **Эксплуатационные процедуры:** безопасная ротация экземпляра ElXray, автоматическое связывание подписанного учёта с доверенным манифестом, диагностика покрытия FUP и набор Windows/WSL/PostgreSQL тестов.
 
-Do not deploy this software as a finished business service solely on the basis of unit tests. All local and GitHub Actions test results should be inspected first.
+### Последние изменения
 
-For verified assignment bootstrapping run `elx-control auto-provision-usage -entitlement UUID -schedule UUID` on the Control host with `ELX_POLICY_BINDING` pointing to the same trusted manifest as `serve-policy`. Nodes running `serve-usage` discover only their own assignments over mTLS on each poll. Payment processing and safe core-incarnation rotation are separate workflows.
+- [PR #18](https://github.com/ElXnet/ElX-control/pull/18) — интеграционная проверка автоматического перераспределения лимитов между **двумя настоящими локальными VLESS-нодами**, включая подписанное снижение и последующее повышение скорости.
+- [PR #19](https://github.com/ElXnet/ElX-control/pull/19) — регрессия гонки **FUP ↔ планировщик ↔ ожидающий signed barrier**: устаревшее повышение отклоняется, ограничения FUP сохраняются.
+- [PR #17](https://github.com/ElXnet/ElX-control/pull/17) — расширенный локальный прогон, проверка уязвимостей ElXray и готовности временной PostgreSQL.
 
-## Paid profiles and isolated payment verifier
+PR #19 проверяет детерминированное чередование операций в PostgreSQL, **а не** новый физический WAN/TUN-сценарий. Итог полной приёмки определяется только единым прогоном на зафиксированных версиях всех трёх репозиториев.
 
-The payment reader/settlement verifier is a **separate service**: it holds the private Ed25519 attestation key and bank API credentials. ElX Control handles only server-priced checkout orders and validates the verifier's signed settlement against a pinned public key. Payment confirmation is exposed on `serve-payment-ingress` using a **separate restricted** `ELX_PAYMENT_SOCKET`; it is not routed through the administrative `ELX_MANAGEMENT_SOCKET`. Profile creation is a durable disabled-first ElX-ui outbox. Rate allocations, signed Control leases and per-node reconciliation must be verified before enabling paid VPN access.
+## Документация
 
-For the operator commands, failure recovery, separate Unix users/groups, 30-day tariff, invoice replay tests and signed core rotation see [Paid profiles and core rotation](docs/elx/paid-profiles-and-core-rotation.ru.md).
+| Раздел | Где читать |
+| --- | --- |
+| Полная техническая приёмка и нерешённые проверки | [План проверки от 07.11.2026](docs/elx/technical-acceptance-2026-11-07.ru.md) |
+| Запуск интеграционных тестов, PostgreSQL и две VLESS-ноды | [Локальный стенд](docs/elx/policy-smoke.ru.md) |
+| Планировщик, блокировки и защита от старого лидера | [Fenced rate scheduler](docs/elx/fenced-rate-scheduler.ru.md) |
+| Настройка и активация подписанного FUP | [Подписанный учёт FUP](docs/elx/signed-fup-provisioning.ru.md) |
+| Платные профили, изоляция payment-verifier, ротация ядра | [Выдача оплаченного доступа](docs/elx/paid-profiles-and-core-rotation.ru.md) |
+| Доказательства спроса и ограничения оценки | [Проверка lease](docs/elx/lease-attested-demand.md) · [Подписанное насыщение](docs/elx/verified-limiter-pressure.md) |
+
+Детали внутреннего mTLS/gRPC-контракта, команд и SQL находятся в документах и исходном коде. Управляющий API **не предназначен для публикации в Интернете**.
+
+## Сборка и локальная проверка
+
+Требуется Go версии из [go.mod](go.mod); для полного стенда — Windows PowerShell, WSL Ubuntu, Docker Desktop и PostgreSQL в одноразовом окружении.
+
+```bash
+go build -o elx-control ./cmd/elx-control
+go test ./...
+```
+
+Из PowerShell для уже расположенных рядом `ElX-control`, `ElXray` и `ElX-ui`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run-elx-windows.ps1 -Workspace 'D:\ElX-test' -Distro Ubuntu -Full
+```
+
+Режим `-Full` запускает комплексную проверку; сохраните точные SHA и полный лог. Скрипты используют изолированные локальные ресурсы и **не развёртывают** сервис на VPS. Перед выполнением обязательно прочитайте [сценарий приёмки](docs/elx/technical-acceptance-2026-11-07.ru.md).
+
+## Ограничения и безопасность
+
+- **Физическая идентификация устройства не доказана:** IP, HWID и копия стандартного VLESS-ключа не являются надёжным удостоверением физического устройства.
+- Глобальная квота реализуется через консервативные назначения нодам; token bucket допускает ограниченный burst и не доказывает математически нулевого мгновенного превышения на сетевом интерфейсе.
+- При отсутствии подписанных данных и принятого ядром lease планировщик не должен выдавать увеличение квоты. Режим обязательных краткосрочных разрешений должен быть настроен и на агенте, и на ядре.
+- Требуются отдельные внешние проверки нескольких реальных клиентов, TUN/UDP/IPv6, отказов сети и PostgreSQL HA, нагрузочного тестирования, платёжного провайдера и восстановительных процедур.
+- Не публикуйте `ELX_MANAGEMENT_SOCKET`, `ELX_PAYMENT_SOCKET`, локальный API ElXray, DSN и закрытые ключи; используйте раздельные системные права и доверенные каналы.
+
+## Происхождение и лицензия
+
+ElX Control — отдельный компонент проекта [ElXnet](https://github.com/ElXnet), а **не** форк 3X-UI или Xray-core. Код распространяется на условиях [GPL-3.0](LICENSE). Связанные компоненты: [ElX-ui](https://github.com/ElXnet/ElX-ui) (форк 3X-UI) и [ElXray](https://github.com/ElXnet/ElXray) (форк Xray-core).
