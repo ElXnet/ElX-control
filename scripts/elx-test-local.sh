@@ -61,6 +61,9 @@ if [[ -z "${ELX_CONTROL_POSTGRES_DSN:-}" ]]; then
     addr=$(docker port "$container" 5432/tcp)
     export ELX_CONTROL_POSTGRES_DSN="host=127.0.0.1 port=${addr##*:} user=elx dbname=elx_test password=elx_local_test sslmode=disable"
 fi
+# Refuse an inherited operator/prod DSN even if it happens to contain "elx_test"
+# in a hostname or password. The disposable database must be exact and local.
+python3 "$root/scripts/guard-disposable-postgres.py" ELX_CONTROL_POSTGRES_DSN
 export ELX_TEST_POSTGRES_DSN="$ELX_CONTROL_POSTGRES_DSN"
 
 echo "ElX-control revision: $(git -C "$root" rev-parse --short HEAD)"
