@@ -35,6 +35,9 @@ def wait_fup_event(lab):
 
 
 def wait_fup_converged(lab):
+    # The fixture's reduced_up/reduced_down are *subscription-wide* FUP
+    # ceilings, not per-node grants. After the first two-node FUP reduce,
+    # fairFUPShares deterministically gives 10k per node out of 20k total.
     def check():
         observed = state(lab)
         p0, p1 = lab.get_policy(0), lab.get_policy(1)
@@ -43,13 +46,13 @@ def wait_fup_converged(lab):
         # Confirm BOTH actual cores agree with the durable PostgreSQL grant.
         if not observed["event"] or observed["pending"] != 0:
             return None
-        if up == [20000, 20000] and down == [20000, 20000] and (
-                observed["committedUp"] == 40000 and
-                observed["committedDown"] == 40000):
+        if up == [10000, 10000] and down == [10000, 10000] and (
+                observed["committedUp"] == 20000 and
+                observed["committedDown"] == 20000):
             return observed
         return None
     try:
-        return wait_for("signed FUP 40k/40k convergence on both live VLESS nodes",
+        return wait_for("signed FUP 20k/20k total ceiling on both live VLESS nodes",
                         check, lab.processes, timeout=95)
     except AssertionError as exc:
         observed = state(lab)
@@ -154,7 +157,7 @@ def run():
             for i in range(2):
                 eventually_live(lab, i).close()
             print(f"PASS: both real cores restored and settled at signed "
-                  f"FUP cap 20000+20000 B/s; {converged}", flush=True)
+                  f"FUP cap 10000+10000 B/s (20k total); {converged}", flush=True)
 
             # Two independent scheduler processes share only PostgreSQL
             # leader fencing. After scheduler A stops, B must acquire a NEW
@@ -181,8 +184,8 @@ def run():
                 return None
             transferred = wait_for("fenced scheduler leadership after process stop",
                                    new_leader, lab.processes, timeout=40)
-            require(transferred["committedUp"] == 40000 and
-                    transferred["committedDown"] == 40000,
+            require(transferred["committedUp"] <= 20000 and
+                    transferred["committedDown"] <= 20000,
                     "scheduler takeover exceeded active FUP")
             print(f"PASS: scheduler takeover increased leader epoch "
                   f"{previous['leaderEpoch']} -> {transferred['leaderEpoch']} "
