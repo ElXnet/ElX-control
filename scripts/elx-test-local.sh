@@ -17,6 +17,7 @@ for tool in go git openssl python3 gcc; do
     echo "OK: $tool"
 done
 echo "Go version: $(go version)"
+python3 "$root/scripts/test_guard_disposable_postgres.py"
 if [[ -z "${ELX_CONTROL_POSTGRES_DSN:-}" ]]; then
     command -v docker >/dev/null || { echo 'MISSING: docker (enable Docker Desktop WSL integration)' >&2; exit 1; }
     if ! docker info >/dev/null 2>&1; then
