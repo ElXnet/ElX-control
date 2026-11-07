@@ -116,7 +116,17 @@ func armFUP(ctx context.Context, db *sql.DB, entitlement string) error {
 	return nil
 }
 
+type fupTargetState struct {
+	Node string `json:"node"`
+	CommittedUp int64 `json:"committedUp"`
+	CommittedDown int64 `json:"committedDown"`
+	Revision int64 `json:"revision"`
+	DesiredUp int64 `json:"desiredUp"`
+	DesiredDown int64 `json:"desiredDown"`
+	Applied bool `json:"applied"`
+}
 type fupState struct {
+	Targets []fupTargetState `json:"targets"`
 	Event bool `json:"event"`
 	CommittedUp int64 `json:"committedUp"`
 	CommittedDown int64 `json:"committedDown"`
@@ -140,6 +150,25 @@ func readFUPState(ctx context.Context,db *sql.DB,entitlement string) error {
 		entitlement).Scan(&s.Event,&s.CommittedUp,&s.CommittedDown,
 			&s.Pending,&s.LeaderEpoch,&s.LeaderHolder)
 	if err!=nil{return err}
+	rows, err := db.QueryContext(ctx, `SELECT g.node_id::text, g.committed_up,
+		g.committed_down, t.revision, COALESCE(m.desired_up,-1),
+		COALESCE(m.desired_down,-1), COALESCE(o.applied_at IS NOT NULL,false)
+		FROM elx_rate_grants g
+		JOIN elx_operation_targets t ON t.node_id=g.node_id AND t.resource_id=g.resource_id
+		LEFT JOIN elx_rate_moves m ON m.node_id=g.node_id
+			AND m.resource_id=g.resource_id AND NOT m.finalized
+		LEFT JOIN elx_operations o ON o.node_id=m.node_id
+			AND o.resource_id=m.resource_id AND o.operation_id=m.operation_id
+		WHERE g.entitlement_id=$1 ORDER BY g.node_id,g.resource_id`, entitlement)
+	if err != nil {return err}
+	defer rows.Close()
+	for rows.Next(){
+		var item fupTargetState
+		if err := rows.Scan(&item.Node,&item.CommittedUp,&item.CommittedDown,
+			&item.Revision,&item.DesiredUp,&item.DesiredDown,&item.Applied); err != nil {return err}
+		s.Targets = append(s.Targets,item)
+	}
+	if err=rows.Err(); err!=nil{return err}
 	return json.NewEncoder(os.Stdout).Encode(s)
 }
 
