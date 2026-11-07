@@ -111,6 +111,14 @@ def run():
             require(not failures, f"VLESS saturation lost payload: {failures}")
             print(f"PASS: real signed scheduler baseline {lower} / {higher}",
                   flush=True)
+            # The FUP recovery stage must not race an unrelated demand
+            # redistribution. Stop the scheduler after proving it works.
+            # A separate PostgreSQL interleaving gate exercises the exact
+            # FUP-vs-pending-scheduler transaction race deterministically.
+            # Restart the scheduler below to prove fenced leader takeover
+            # under the active FUP ceiling, without requiring equal node
+            # shares while demand-aware redistribution is also running.
+            lab.stop("scheduler-a")
 
             # Activate only after two real signed streams were primed.
             # The guarded TEST fixture arms an additional 64KiB of demand
@@ -151,9 +159,16 @@ def run():
             # Two independent scheduler processes share only PostgreSQL
             # leader fencing. After scheduler A stops, B must acquire a NEW
             # epoch, and the active FUP cap must remain authoritative.
-            previous = state(lab)
-            require(previous["leaderEpoch"] > 0,
-                    "scheduler A never established PostgreSQL leader")
+            old_epoch = state(lab)["leaderEpoch"]
+            require(old_epoch > 0, "scheduler baseline had no PostgreSQL leader")
+            lab.spawn("scheduler-a", [lab.control, "serve-scheduler",
+                      "-interval", "2s", "-leader-ttl", "15s"],
+                      env={**lab.env(), "ELX_RATE_SCHEDULER_ENABLED": "1"})
+            def leader_a_ready():
+                observed = state(lab)
+                return observed if observed["leaderEpoch"] > old_epoch else None
+            previous = wait_for("scheduler A re-acquires a fenced epoch after FUP",
+                                leader_a_ready, lab.processes, timeout=40)
             lab.spawn("scheduler-b", [lab.control, "serve-scheduler",
                       "-interval", "2s", "-leader-ttl", "15s"],
                       env={**lab.env(), "ELX_RATE_SCHEDULER_ENABLED": "1"})
