@@ -17,6 +17,7 @@ for tool in go git openssl python3 gcc; do
     echo "OK: $tool"
 done
 echo "Go version: $(go version)"
+python3 "$root/scripts/test_guard_disposable_postgres.py"
 if [[ -z "${ELX_CONTROL_POSTGRES_DSN:-}" ]]; then
     command -v docker >/dev/null || { echo 'MISSING: docker (enable Docker Desktop WSL integration)' >&2; exit 1; }
     if ! docker info >/dev/null 2>&1; then
@@ -61,6 +62,9 @@ if [[ -z "${ELX_CONTROL_POSTGRES_DSN:-}" ]]; then
     addr=$(docker port "$container" 5432/tcp)
     export ELX_CONTROL_POSTGRES_DSN="host=127.0.0.1 port=${addr##*:} user=elx dbname=elx_test password=elx_local_test sslmode=disable"
 fi
+# Refuse an inherited operator/prod DSN even if it happens to contain "elx_test"
+# in a hostname or password. The disposable database must be exact and local.
+python3 "$root/scripts/guard-disposable-postgres.py" ELX_CONTROL_POSTGRES_DSN
 export ELX_TEST_POSTGRES_DSN="$ELX_CONTROL_POSTGRES_DSN"
 
 echo "ElX-control revision: $(git -C "$root" rev-parse --short HEAD)"
@@ -82,5 +86,6 @@ export TMPDIR="$work"
     python3 tests/e2e/test_rate_partition.py
     python3 tests/e2e/test_lease_partition.py
     python3 tests/e2e/test_live_scheduler.py
+    python3 tests/e2e/test_live_fup_scheduler.py
 )
 echo 'PASS: ElX local suite'

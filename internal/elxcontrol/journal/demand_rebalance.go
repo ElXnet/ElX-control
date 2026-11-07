@@ -223,6 +223,17 @@ func rebalanceDemand(ctx context.Context, db *sql.DB, entitlement string,
 		return out, err
 	}
 	out.FrozenOverBudget = plan.FrozenOverBudget
+	// When a new FUP limit is below even the frozen/unknown commitments,
+	// the automatic scheduler cannot safely know which active core should
+	// surrender bandwidth. Do NOT disable an otherwise healthy paid VPN
+	// profile by planning a zero-rate grant for the remaining visible node.
+	// ReconcileFUP owns the symmetric, signed-barrier reductions; the
+	// scheduler resumes only after the committed budget is feasible.
+	// Keep the legacy explicit-demand API's behavior unchanged.
+	if leader != nil && plan.FrozenOverBudget {
+		out.Phase = "waiting"
+		return out, nil
+	}
 	// Never use the old planned Raise after issuing Lower. Each call takes
 	// a new locked snapshot; the next decision follows durable barriers.
 	var next *allocation.Change
