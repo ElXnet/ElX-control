@@ -48,8 +48,16 @@ def wait_fup_converged(lab):
                 observed["committedDown"] == 40000):
             return observed
         return None
-    return wait_for("signed FUP 40k/40k convergence on both live VLESS nodes",
-                    check, lab.processes, timeout=95)
+    try:
+        return wait_for("signed FUP 40k/40k convergence on both live VLESS nodes",
+                        check, lab.processes, timeout=95)
+    except AssertionError as exc:
+        observed = state(lab)
+        policies = [lab.get_policy(i) for i in range(2)]
+        raise AssertionError(
+            f"{exc}; durable FUP state={json.dumps(observed, sort_keys=True)}; "
+            f"real core policies={json.dumps(policies, sort_keys=True)}"
+        ) from exc
 
 
 def run():
