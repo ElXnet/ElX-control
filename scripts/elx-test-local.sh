@@ -82,5 +82,6 @@ export TMPDIR="$work"
     python3 tests/e2e/test_rate_partition.py
     python3 tests/e2e/test_lease_partition.py
     python3 tests/e2e/test_live_scheduler.py
+    python3 tests/e2e/test_live_fup_scheduler.py
 )
 echo 'PASS: ElX local suite'
