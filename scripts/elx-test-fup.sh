@@ -89,6 +89,7 @@ echo "PostgreSQL ready on 127.0.0.1:$port"
 # rather than producing a misleading green 'ok [no tests to run]'.
 tests=(
     TestFUPTighteningInterleavesWithAttestedSchedulerAndSignedBarriers
+    TestAttestedSchedulerWaitsForFUPWhenUnknownCommitmentExceedsBudget
     TestActiveFUPDoesNotBlockReductionOrAllowExpansion
     TestAttestedSchedulerQueuesReductionFirstAndNeverReusesUnprovedCapacity
     TestAttestedSchedulerRequiresFreshCoreProofAndCurrentBudget
