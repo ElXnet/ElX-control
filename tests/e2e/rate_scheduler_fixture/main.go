@@ -11,11 +11,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/journal"
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/management"
+	"github.com/jackc/pgx/v5"
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -151,8 +151,10 @@ func main() {
 	dsn := os.Getenv("ELX_CONTROL_POSTGRES_DSN")
 	// Fail closed on an unknown DSN. Acceptance tests use a fresh Docker
 	// database named elx_test, never live subscriptions or payments.
-	if dsn == "" || !strings.Contains(dsn, "elx_test") {
-		fmt.Fprintln(os.Stderr, "refusing to touch a database without the disposable elx_test marker")
+	cfg, parseErr := pgx.ParseConfig(dsn)
+	if parseErr != nil || cfg.Database != "elx_test" ||
+		(cfg.Host != "127.0.0.1" && cfg.Host != "::1") || cfg.Port == 0 {
+		fmt.Fprintln(os.Stderr, "refusing non-loopback or non-disposable PostgreSQL database")
 		os.Exit(2)
 	}
 	db, err := sql.Open("pgx", dsn)
