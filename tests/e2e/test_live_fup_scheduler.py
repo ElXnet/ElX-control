@@ -131,9 +131,12 @@ def run():
                   "during FUP reconciliation", flush=True)
             lab.spawn("control", [lab.control, "serve-policy"],
                       env=lab.env(cert="control"))
+            # Pending FUP journal reductions must finish first. An expired
+            # mandatory lease is not evidence that policy/barrier application
+            # failed: those are independent safety/recovery operations.
+            converged = wait_fup_converged(lab)
             for i in range(2):
                 eventually_live(lab, i).close()
-            converged = wait_fup_converged(lab)
             print(f"PASS: both real cores restored and settled at signed "
                   f"FUP cap 20000+20000 B/s; {converged}", flush=True)
 
