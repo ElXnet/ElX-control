@@ -97,7 +97,16 @@ export TMPDIR="$work"
             # the parent to run the already-built test-only binaries.
             chmod 0711 "$work"
             trap 'chmod 0700 "$work"' EXIT
-            sudo -n -E python3 tests/e2e/test_lease_partition.py
+            # Some sudo policies ignore -E (GitHub hosted runners), dropping
+            # the prebuilt binaries and disposable database URL. Forward ONLY
+            # the exact test fixture inputs needed by this root-only E2E.
+            sudo -n /usr/bin/env \
+                ELXRAY_BIN="$ELXRAY_BIN" \
+                ELX_CONTROL_BIN="$ELX_CONTROL_BIN" \
+                ELX_CONTROL_POSTGRES_DSN="$ELX_CONTROL_POSTGRES_DSN" \
+                ELX_TEST_POSTGRES_DSN="$ELX_TEST_POSTGRES_DSN" \
+                TMPDIR="$TMPDIR" \
+                python3 tests/e2e/test_lease_partition.py
         )
     else
         echo 'BLOCKED: managed SO_PEERCRED partition E2E requires root or passwordless sudo' >&2
