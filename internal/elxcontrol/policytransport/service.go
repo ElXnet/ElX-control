@@ -331,6 +331,7 @@ func ApplyNext(ctx context.Context, conn grpc.ClientConnInterface, core Applier)
 		return err
 	}
 	var proof []byte
+	var err error
 	if job.ExecutorID != "" {
 		// When v3 manifest assigns a concrete executor, neither agent nor
 		// library may downgrade the job to the legacy operation-less RPC.
