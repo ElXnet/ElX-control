@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/google/uuid"
@@ -52,6 +53,8 @@ func VerifyAppliedEvidence(publicKey ed25519.PublicKey, challenge string,
 	dec:=json.NewDecoder(strings.NewReader(string(raw)))
 	dec.DisallowUnknownFields()
 	if dec.Decode(&r)!=nil {return false}
+	var trailing any
+	if dec.Decode(&trailing)!=io.EOF {return false}
 	if r.Version!=1 || r.OperationID!=operation.OperationID ||
 		r.PayloadSHA256!=ManagedMutationDigest(policy) ||
 		r.NodeID!=operation.NodeID || r.ExecutorID!=operation.ExecutorID ||
