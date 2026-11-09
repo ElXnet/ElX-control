@@ -71,6 +71,7 @@ type receipt struct {
 	ResourceID string `json:",omitempty"`
 	Operation  string
 	Proof      []byte
+	AppliedEvidence []byte `json:",omitempty"`
 }
 
 type server struct {
@@ -210,6 +211,14 @@ func (s *server) confirm(ctx context.Context, in *wrapperspb.BytesValue) (*empty
 	if !corepolicy.VerifyProof(b.PublicKey, job.Challenge, job.Policy, ack.Proof) {
 		return nil, status.Error(codes.PermissionDenied, "invalid durable policy signature")
 	}
+	if b.ExecutorID != "" {
+		if !corepolicy.VerifyAppliedEvidence(b.PublicKey, job.Challenge, corepolicy.ManagedOperation{
+			OperationID: job.Operation, NodeID: job.NodeID, ExecutorID: job.ExecutorID,
+			ResourceID: job.ResourceID, AuthorityGeneration: job.AuthorityGeneration,
+		}, job.Policy, ack.AppliedEvidence) {
+			return nil, status.Error(codes.PermissionDenied, "missing or invalid signed managed APPLIED receipt")
+		}
+	}
 	err = journal.ConfirmApplied(ctx, s.db, b.Target, cmd.ID, cmd.ExpectedRevision+1, sha256.Sum256(cmd.Payload))
 	switch {
 	case errors.Is(err, journal.ErrRevision), errors.Is(err, journal.ErrReceipt):
@@ -323,7 +332,22 @@ func ApplyNext(ctx context.Context, conn grpc.ClientConnInterface, core Applier)
 	if err != nil {
 		return err
 	}
-	payload, err := json.Marshal(receipt{ResourceID: job.ResourceID, Operation: job.Operation, Proof: proof})
+	var appliedEvidence []byte
+	if job.ExecutorID != "" {
+		if len(proof) <= ed25519.SignatureSize {
+			return status.Error(codes.FailedPrecondition, "managed operation lacks separately signed APPLIED receipt")
+		}
+		appliedEvidence = append([]byte(nil), proof[ed25519.SignatureSize:]...)
+		proof = proof[:ed25519.SignatureSize]
+		if !corepolicy.VerifyAppliedEvidence(job.PublicKey, job.Challenge, corepolicy.ManagedOperation{
+			OperationID: job.Operation, NodeID: job.NodeID, ExecutorID: job.ExecutorID,
+			ResourceID: job.ResourceID, AuthorityGeneration: job.AuthorityGeneration,
+		}, job.Policy, appliedEvidence) {
+			return status.Error(codes.PermissionDenied, "managed receipt signature mismatch")
+		}
+	}
+	payload, err := json.Marshal(receipt{ResourceID: job.ResourceID, Operation: job.Operation,
+		Proof: proof, AppliedEvidence: appliedEvidence})
 	if err != nil {
 		return err
 	}
