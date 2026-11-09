@@ -19,20 +19,27 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
+// Lease v3 binds the same Control-signed budget to one node, resource,
+// executor and persisted grant epoch. Legacy v2 is never issued here.
 type Lease struct {
-	NodeID uuid.UUID
-	Subscription string
-	Sequence int64
-	NotBefore int64
-	NotAfter int64
-	CeilingUp int64
-	CeilingDown int64
-	Signature []byte
+	Version             uint32
+	NodeID              uuid.UUID
+	ResourceID          uuid.UUID
+	ExecutorID          uuid.UUID
+	AuthorityGeneration uint64
+	Subscription        string
+	Sequence            int64
+	NotBefore           int64
+	NotAfter            int64
+	CeilingUp           int64
+	CeilingDown         int64
+	Signature           []byte
 }
 
 func (t Lease) transcript() []byte {
-	return fmt.Appendf(nil,"elx-control-lease-v2\n%s\n%s\n%d\n%d\n%d\n%d\n%d",
-		t.NodeID,t.Subscription,t.Sequence,t.NotBefore,t.NotAfter,t.CeilingUp,t.CeilingDown)
+	return fmt.Appendf(nil, "elx-control-lease-v3\n%s\n%s\n%s\n%s\n%d\n%d\n%d\n%d\n%d\n%d",
+		t.NodeID, t.ResourceID, t.ExecutorID, t.Subscription,
+		t.Sequence, t.NotBefore, t.NotAfter, t.CeilingUp, t.CeilingDown, t.AuthorityGeneration)
 }
 type LeaseRequest struct { ResourceID string; Subscription string }
 
@@ -79,6 +86,11 @@ func (s *server) lease(ctx context.Context,in *wrapperspb.BytesValue)(*wrappersp
 	if binding==nil {
 		return nil,status.Error(codes.PermissionDenied,"lease target not assigned to authenticated node")
 	}
+	// Executor identity is provisioned by the trusted Control manifest, never
+	// accepted from the remote node's LeaseRequest JSON body.
+	if !validID(binding.ExecutorID) {
+		return nil,status.Error(codes.FailedPrecondition,"v3 lease executor binding is not provisioned")
+	}
 	var entitlement string
 	var ceilingUp,ceilingDown,storedEpoch int64
 	var pinnedKey []byte
@@ -118,7 +130,13 @@ func (s *server) lease(ctx context.Context,in *wrapperspb.BytesValue)(*wrappersp
 	now:=time.Now().UTC()
 	node,err:=uuid.Parse(binding.Target.NodeID)
 	if err!=nil {return nil,status.Error(codes.Internal,"invalid bound node UUID")}
-	t:=Lease{NodeID:node,Subscription:req.Subscription,Sequence:now.UnixNano(),
+	resource, err := uuid.Parse(binding.Target.ResourceID)
+	if err != nil || resource == uuid.Nil {return nil,status.Error(codes.Internal,"invalid rate resource UUID")}
+	executor, err := uuid.Parse(binding.ExecutorID)
+	if err != nil || executor == uuid.Nil {return nil,status.Error(codes.Internal,"invalid core executor UUID")}
+	if storedEpoch <= 0 {return nil,status.Error(codes.FailedPrecondition,"invalid durable grant generation")}
+	t:=Lease{Version:3,NodeID:node,ResourceID:resource,ExecutorID:executor,
+		AuthorityGeneration:uint64(storedEpoch),Subscription:req.Subscription,Sequence:now.UnixNano(),
 		NotBefore:now.Unix(),NotAfter:now.Unix()+15,
 		CeilingUp:ceilingUp,CeilingDown:ceilingDown}
 	t.Signature=ed25519.Sign(s.leaseKey,t.transcript())
