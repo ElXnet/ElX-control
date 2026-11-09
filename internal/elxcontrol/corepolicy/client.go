@@ -145,9 +145,14 @@ func (c *Client) apply(ctx context.Context, desired Policy, challenge string, pu
 		return nil, fmt.Errorf("set ElXray runtime policy: %w", err)
 	}
 	var policy *wire.Subscription
-	var proof []byte
+	var proof, operationEvidence []byte
 	if challenge == "" {
 		policy, err = c.rpc.GetSubscription(ctx, &wire.GetSubscriptionRequest{Id: desired.ID})
+	} else if operation != nil {
+		ctx = metadata.AppendToOutgoingContext(ctx,
+			"elx-op-readback-id", operation.OperationID,
+			"elx-op-readback-challenge", challenge)
+		policy, proof, operationEvidence, err = c.readProofAndReceipt(ctx, desired.ID, challenge, publicKey)
 	} else {
 		policy, proof, err = c.readProof(ctx, desired.ID, challenge, publicKey)
 	}
@@ -158,6 +163,15 @@ func (c *Client) apply(ctx context.Context, desired Policy, challenge string, pu
 		policy.GetUplinkBps() != desired.UplinkBps || policy.GetDownlinkBps() != desired.DownlinkBps ||
 		policy.GetDisabled() != desired.Disabled {
 		return nil, errors.New("ElXray runtime policy readback mismatch")
+	}
+	if operation != nil {
+		if len(proof) != ed25519.SignatureSize || len(operationEvidence) == 0 || len(operationEvidence) > 4096 {
+			return nil, errors.New("missing durable applied-operation evidence")
+		}
+		// Return policy proof followed by JSON operation evidence. The
+		// transport adapter splits them and the Control service verifies
+		// both signatures against the same pinned core public key.
+		return append(append(make([]byte, 0, len(proof)+len(operationEvidence)), proof...), operationEvidence...), nil
 	}
 	return proof, nil
 }
@@ -183,6 +197,35 @@ func (c *Client) readProof(ctx context.Context, id, challenge string, key ed2551
 		return nil, nil, errors.New("ElXray durable signature does not match assigned core")
 	}
 	return policy, proof, nil
+}
+
+// readProofAndReceipt retrieves two independent signatures: policy payload
+// state and exact durable operation APPLIED state. A missing second response
+// is not equivalent to a successful policy mutation.
+func (c *Client) readProofAndReceipt(ctx context.Context, id, challenge string,
+	key ed25519.PublicKey) (*wire.Subscription, []byte, []byte, error) {
+	var header metadata.MD
+	policy, err := c.rpc.GetSubscription(ctx, &wire.GetSubscriptionRequest{Id: id}, grpc.Header(&header))
+	if err != nil { return nil, nil, nil, err }
+	values := header.Get("elx-policy-proof")
+	receipts := header.Get("elx-operation-receipt-bin")
+	if len(values) != 1 || len(receipts) != 1 {
+		return nil, nil, nil, errors.New("missing complete signed durable operation evidence")
+	}
+	proof, err := hex.DecodeString(values[0])
+	if err != nil || len(proof) != ed25519.SignatureSize {
+		return nil, nil, nil, errors.New("invalid core policy signature")
+	}
+	if policy.GetId() != id || !VerifyProof(key, challenge, Policy{
+		ID: policy.GetId(), Revision: policy.GetRevision(), UplinkBps: policy.GetUplinkBps(),
+		DownlinkBps: policy.GetDownlinkBps(), Disabled: policy.GetDisabled(),
+	}, proof) {
+		return nil, nil, nil, errors.New("core policy readback does not match pinned signing key")
+	}
+	if len(receipts[0]) == 0 || len(receipts[0]) > 4096 {
+		return nil, nil, nil, errors.New("invalid managed applied receipt length")
+	}
+	return policy, proof, []byte(receipts[0]), nil
 }
 
 // VerifyProof checks the Ed25519 readback format implemented by ElXray.
