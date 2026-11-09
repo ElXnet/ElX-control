@@ -37,6 +37,9 @@ type Lease struct {
 }
 
 func (t Lease) transcript() []byte {
+	if t.Version != 3 {
+		return nil
+	}
 	return fmt.Appendf(nil, "elx-control-lease-v3\n%s\n%s\n%s\n%s\n%d\n%d\n%d\n%d\n%d\n%d",
 		t.NodeID, t.ResourceID, t.ExecutorID, t.Subscription,
 		t.Sequence, t.NotBefore, t.NotAfter, t.CeilingUp, t.CeilingDown, t.AuthorityGeneration)
