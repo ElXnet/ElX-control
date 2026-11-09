@@ -3,6 +3,7 @@ package journal
 import (
  "crypto/ed25519"
  "crypto/sha256"
+ "database/sql"
  "errors"
  "testing"
 
