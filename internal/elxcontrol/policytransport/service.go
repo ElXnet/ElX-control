@@ -59,6 +59,9 @@ func (r Rates) Valid() bool {
 type Job struct {
 	PublicKey  ed25519.PublicKey
 	ResourceID string `json:",omitempty"`
+	NodeID string
+	ExecutorID string
+	AuthorityGeneration uint64
 	Operation  string
 	Policy     corepolicy.Policy
 	Challenge  string
@@ -146,7 +149,9 @@ func (b Binding) job(cmd journal.Command) (Job, error) {
 		UplinkBps: rates.Up, DownlinkBps: rates.Down, Disabled: rates.Disabled}
 	challenge := sha256.Sum256(fmt.Appendf(nil, "elx-command-v1\n%s\n%s\n%s\n%d\n%x",
 		b.Target.NodeID, b.Target.ResourceID, cmd.ID, b.Epoch, sha256.Sum256(cmd.Payload)))
-	return Job{PublicKey: b.PublicKey, ResourceID: b.Target.ResourceID, Operation: cmd.ID, Policy: policy, Challenge: fmt.Sprintf("%x", challenge)}, nil
+	return Job{PublicKey: b.PublicKey, ResourceID: b.Target.ResourceID, NodeID:b.Target.NodeID,
+		ExecutorID:b.ExecutorID, AuthorityGeneration:uint64(b.Epoch),
+		Operation: cmd.ID, Policy: policy, Challenge: fmt.Sprintf("%x", challenge)}, nil
 }
 
 func (s *server) next(ctx context.Context, _ *emptypb.Empty) (*wrapperspb.BytesValue, error) {
@@ -285,6 +290,10 @@ type Applier interface {
 	ApplyWithProof(context.Context, corepolicy.Policy, string, ed25519.PublicKey) ([]byte, error)
 }
 
+type ManagedApplier interface {
+	ApplyManagedWithProof(context.Context, corepolicy.Policy, string, ed25519.PublicKey, corepolicy.ManagedOperation) ([]byte, error)
+}
+
 // ApplyNext pulls one command, applies it locally and sends its core proof.
 func ApplyNext(ctx context.Context, conn grpc.ClientConnInterface, core Applier) error {
 	var data wrapperspb.BytesValue
@@ -295,7 +304,22 @@ func ApplyNext(ctx context.Context, conn grpc.ClientConnInterface, core Applier)
 	if err := json.Unmarshal(data.Value, &job); err != nil {
 		return err
 	}
-	proof, err := core.ApplyWithProof(ctx, job.Policy, job.Challenge, job.PublicKey)
+	var proof []byte
+	if job.ExecutorID != "" {
+		// When v3 manifest assigns a concrete executor, neither agent nor
+		// library may downgrade the job to the legacy operation-less RPC.
+		managed, ok := core.(ManagedApplier)
+		if !ok || !validID(job.NodeID) || !validID(job.ExecutorID) || !validID(job.ResourceID) ||
+			!validID(job.Operation) || job.AuthorityGeneration == 0 {
+			return status.Error(codes.FailedPrecondition, "managed journal adapter unavailable or unbound")
+		}
+		proof, err = managed.ApplyManagedWithProof(ctx, job.Policy, job.Challenge, job.PublicKey, corepolicy.ManagedOperation{
+			OperationID: job.Operation, NodeID: job.NodeID, ResourceID: job.ResourceID,
+			ExecutorID: job.ExecutorID, AuthorityGeneration: job.AuthorityGeneration,
+		})
+	} else {
+		proof, err = core.ApplyWithProof(ctx, job.Policy, job.Challenge, job.PublicKey)
+	}
 	if err != nil {
 		return err
 	}
