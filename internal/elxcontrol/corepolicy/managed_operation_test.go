@@ -82,12 +82,12 @@ func TestManagedControlAdapterBindsExactMutationToOperation(t *testing.T) {
 	defer conn.Close()
 	client:=&Client{conn:conn,rpc:wire.NewSubscriptionServiceClient(conn)}
 	node,resource,executor,op:=uuid.NewString(),uuid.NewString(),uuid.NewString(),uuid.NewString()
-	result,err:=client.ApplyManagedWithProof(context.Background(),Policy{ID:"lab",Revision:2,UplinkBps:90,DownlinkBps:180},"challenge",
+	result,err:=client.ApplyManagedWithProof(context.Background(),Policy{ID:"lab",Revision:2,UplinkBps:90,DownlinkBps:180},"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
 		key.Public().(ed25519.PublicKey),ManagedOperation{
 		OperationID:op,NodeID:node,ExecutorID:executor,ResourceID:resource,AuthorityGeneration:9,
 	})
 	if err!=nil{t.Fatal(err)}
-	if len(result)<=ed25519.SignatureSize || !VerifyAppliedEvidence(key.Public().(ed25519.PublicKey),"challenge",
+	if len(result)<=ed25519.SignatureSize || !VerifyAppliedEvidence(key.Public().(ed25519.PublicKey),"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
 		ManagedOperation{OperationID:op,NodeID:node,ExecutorID:executor,ResourceID:resource,AuthorityGeneration:9},
 		Policy{ID:"lab",Revision:2,UplinkBps:90,DownlinkBps:180},result[ed25519.SignatureSize:]) {
 		t.Fatal("core applied-operation evidence missing or invalid")
