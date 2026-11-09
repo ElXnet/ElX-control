@@ -4,6 +4,12 @@ set -euo pipefail
 : "${ELX_CONTROL_POSTGRES_DSN:?set a disposable PostgreSQL DSN}"
 : "${ELXRAY_BIN:?set the absolute path to ElXray}"
 : "${ELX_CONTROL_BIN:?set the absolute path to elx-control}"
+# This legacy integration lab exercises the standalone runtime and loopback
+# API intentionally. Paid managed nodes NEVER use these settings; managed
+# production must retain the OS-authenticated Unix Commander + signed lease.
+export ELXRAY_MODE=standalone
+unset ELXRAY_REQUIRE_CONTROL_LEASE ELXRAY_CONTROL_LEASE_PUBLIC_KEY \\
+    ELXRAY_CONTROL_LEASE_BINDINGS_FILE ELXRAY_OP_JOURNAL ELXRAY_AGENT_UID ELXRAY_AGENT_GID || true
 dir=$(mktemp -d)
 umask 077
 core_pid=
