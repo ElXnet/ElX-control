@@ -248,6 +248,7 @@ type service interface {
 	next(context.Context, *emptypb.Empty) (*wrapperspb.BytesValue, error)
 	confirm(context.Context, *wrapperspb.BytesValue) (*emptypb.Empty, error)
 	lease(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
+	witness(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
 	nextRateBarrier(context.Context, *emptypb.Empty) (*wrapperspb.BytesValue, error)
 	confirmRateBarrier(context.Context, *wrapperspb.BytesValue) (*emptypb.Empty, error)
 }
@@ -289,6 +290,7 @@ func register(g *grpc.Server, db *sql.DB, source func()([]Binding,error), bindin
 			{MethodName: "Next", Handler: handler("Next", (*server).next)},
 			{MethodName: "Confirm", Handler: handler("Confirm", (*server).confirm)},
 			{MethodName: "Lease", Handler: handler("Lease", (*server).lease)},
+			{MethodName: "StoreWitness", Handler: handler("StoreWitness", (*server).witness)},
 			{MethodName: "RateBarrierNext", Handler: handler("RateBarrierNext", (*server).nextRateBarrier)},
 			{MethodName: "RateBarrierConfirm", Handler: handler("RateBarrierConfirm", (*server).confirmRateBarrier)},
 		},
