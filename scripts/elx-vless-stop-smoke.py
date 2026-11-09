@@ -63,6 +63,9 @@ with tempfile.TemporaryDirectory() as tmp:
         path.write_text(json.dumps(config))
         env = os.environ.copy()
         if name == 'server':
+            # Legacy loopback smoke intentionally runs without Control leases.
+            # This is NOT the paid managed-node security configuration.
+            env['ELXRAY_MODE'] = 'standalone'
             env['ELXRAY_POLICY_STATE'] = str(state)
         p = subprocess.Popen([binary, 'run', '-c', str(path)], env=env)
         processes.append(p)
