@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net"
+	"strconv"
 	"sync"
 	"testing"
 
@@ -27,12 +29,33 @@ type managedPolicyProbe struct {
 func (s *managedPolicyProbe) GetSubscription(ctx context.Context, r *wire.GetSubscriptionRequest) (*wire.Subscription,error) {
 	s.mu.Lock()
 	p:=s.policy
+	appliedMD:=s.incoming.Copy()
 	s.mu.Unlock()
 	md,_:=metadata.FromIncomingContext(ctx)
 	if challenge:=md.Get("elx-policy-challenge");len(challenge)==1 {
 		proof:=ed25519.Sign(s.key,fmt.Appendf(nil,"elx-policy-v1\n%x\n%x\n%d\n%d\n%d\n%t",
 			challenge[0],p.ID,p.Revision,p.UplinkBps,p.DownlinkBps,p.Disabled))
 		if err:=grpc.SetHeader(ctx,metadata.Pairs("elx-policy-proof",hex.EncodeToString(proof)));err!=nil{return nil,err}
+	}
+	if requested:=md.Get("elx-op-readback-id");len(requested)==1 {
+		challenge:=md.Get("elx-op-readback-challenge")
+		if len(challenge)!=1 {return nil,fmt.Errorf("missing operation challenge")}
+		value:=func(field string) string {v:=appliedMD.Get(field);if len(v)!=1{return ""};return v[0]}
+		epoch,_:=strconv.ParseUint(value("elx-op-generation"),10,64)
+		receipt:=AppliedEvidence{
+			Version:1,OperationID:requested[0],PayloadSHA256:value("elx-op-hash"),
+			NodeID:value("elx-op-node"),ExecutorID:value("elx-op-executor"),
+			ResourceID:value("elx-op-resource"),AuthorityGeneration:epoch,
+			Revision:p.Revision,CoreIncarnation:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+			StoreID:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",CompletedUnixNanos:1700000000000000000,
+		}
+		message:=fmt.Appendf(nil,"elx-applied-operation-v1\n%x\n%s\n%s\n%s\n%s\n%s\n%d\n%d\n%s\n%s\n%d",
+			challenge[0],receipt.OperationID,receipt.PayloadSHA256,receipt.NodeID,receipt.ExecutorID,
+			receipt.ResourceID,receipt.AuthorityGeneration,receipt.Revision,receipt.CoreIncarnation,
+			receipt.StoreID,receipt.CompletedUnixNanos)
+		receipt.Signature=ed25519.Sign(s.key,message)
+		encoded,_:=json.Marshal(receipt)
+		if err:=grpc.SetHeader(ctx,metadata.Pairs("elx-operation-receipt-bin",string(encoded)));err!=nil{return nil,err}
 	}
 	return &wire.Subscription{Id:p.ID,Revision:p.Revision,UplinkBps:p.UplinkBps,DownlinkBps:p.DownlinkBps,Disabled:p.Disabled},nil
 }
@@ -59,10 +82,16 @@ func TestManagedControlAdapterBindsExactMutationToOperation(t *testing.T) {
 	defer conn.Close()
 	client:=&Client{conn:conn,rpc:wire.NewSubscriptionServiceClient(conn)}
 	node,resource,executor,op:=uuid.NewString(),uuid.NewString(),uuid.NewString(),uuid.NewString()
-	if _,err=client.ApplyManagedWithProof(context.Background(),Policy{ID:"lab",Revision:2,UplinkBps:90,DownlinkBps:180},"challenge",
+	result,err:=client.ApplyManagedWithProof(context.Background(),Policy{ID:"lab",Revision:2,UplinkBps:90,DownlinkBps:180},"challenge",
 		key.Public().(ed25519.PublicKey),ManagedOperation{
 		OperationID:op,NodeID:node,ExecutorID:executor,ResourceID:resource,AuthorityGeneration:9,
-	});err!=nil{t.Fatal(err)}
+	})
+	if err!=nil{t.Fatal(err)}
+	if len(result)<=ed25519.SignatureSize || !VerifyAppliedEvidence(key.Public().(ed25519.PublicKey),"challenge",
+		ManagedOperation{OperationID:op,NodeID:node,ExecutorID:executor,ResourceID:resource,AuthorityGeneration:9},
+		Policy{ID:"lab",Revision:2,UplinkBps:90,DownlinkBps:180},result[ed25519.SignatureSize:]) {
+		t.Fatal("core applied-operation evidence missing or invalid")
+	}
 	server.mu.Lock()
 	defer server.mu.Unlock()
 	if server.mutations!=1 {t.Fatalf("unexpected writes: %d",server.mutations)}
