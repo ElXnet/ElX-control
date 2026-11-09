@@ -48,3 +48,17 @@ func TestSignedIndependentStoreWitnessContract(t *testing.T){
   }
  }
 }
+
+func TestControlProfileDenyHWMGoldenAndGeneration(t *testing.T) {
+	if got := tombstoneDigestFromEntries(nil); got != "eab4b2179450179f4800ff300bcc16116728c6dd60bf5ea2e10020b9ef0f5693" {
+		t.Fatalf("empty profile denial HWM differs from core: %s", got)
+	}
+	profile := "77777777-7777-4777-8777-777777777777"
+	got := tombstoneDigestFromEntries([]string{profile + "\n7\n"})
+	if got != "4d9936f70da34e7684370bfad1a670bff318f24375aa34688f80a5720fa2a456" {
+		t.Fatalf("Control profile denial HWM differs from core: %s", got)
+	}
+	if got := tombstoneDigestFromEntries([]string{profile + "\n1\n"}); got == "4d9936f70da34e7684370bfad1a670bff318f24375aa34688f80a5720fa2a456" {
+		t.Fatal("stale profile generation was equal to current HWM")
+	}
+}
