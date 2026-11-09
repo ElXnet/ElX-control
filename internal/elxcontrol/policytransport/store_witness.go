@@ -71,11 +71,17 @@ func controlTombstoneDigest(ctx context.Context,db *sql.DB,nodeID string)(string
   entries=append(entries,fmt.Sprintf("%s\n%d\n",profile,generation))
  }
  if err:=rows.Err();err!=nil{return "",err}
+ return tombstoneDigestFromEntries(entries),nil
+}
+
+// Shared by the SQL-backed signer and offline golden negative fixtures.
+// Entries are canonical UUID + newline + signed int64 generation + newline.
+func tombstoneDigestFromEntries(entries []string) string {
  sort.Strings(entries)
  h:=sha256.New()
  _,_ = h.Write([]byte("elx-denied-profile-v1\n"))
  for _,entry:=range entries{_,_ = h.Write([]byte(entry))}
- return hex.EncodeToString(h.Sum(nil)),nil
+ return hex.EncodeToString(h.Sum(nil))
 }
 
 func (s *server) witness(ctx context.Context,in *wrapperspb.BytesValue)(*wrapperspb.BytesValue,error) {
