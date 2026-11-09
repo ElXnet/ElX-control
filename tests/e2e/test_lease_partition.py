@@ -8,6 +8,8 @@ from pathlib import Path
 import os
 import secrets
 import socket
+import json
+import pwd
 import subprocess
 import sys
 import tempfile
@@ -19,7 +21,17 @@ from test_multinode import Lab, command, require, wait_for
 
 class LeasedLab(Lab):
     def __init__(self, folder):
+        require(sys.platform.startswith("linux") and os.geteuid() == 0,
+                "managed peercred E2E requires Linux root to launch a distinct unprivileged agent")
+        agent = pwd.getpwnam("nobody")
+        self.agent_uid, self.agent_gid = agent.pw_uid, agent.pw_gid
+        self.executor_ids = [str(uuid.uuid4()) for _ in range(2)]
+        self.sockets = [folder / f"node-{i}-commander.sock" for i in range(2)]
         super().__init__(folder)
+        # The agent needs traversal, but may never write the socket directory.
+        # Secrets remain root-owned; selected agent TLS key/manifest files
+        # are read-only for its group.
+        folder.chmod(0o755)
         self.entitlement = str(uuid.uuid4())
         self.lease_seed = folder / "control-lease-seed.key"
         self.lease_seed.write_text(secrets.token_hex(32), encoding="ascii")
@@ -27,26 +39,99 @@ class LeasedLab(Lab):
         self.lease_public = command(
             [self.control, "policy-public-key", self.lease_seed]
         ).stdout.strip()
-        # The master trusts both bindings; each node agent may request
-        # leases only for its own locally provisioned binding.
         self.node_manifests = []
-        import json
+        self.core_manifests = []
         shared = json.loads(self.manifest.read_text(encoding="utf-8"))
         for i in range(2):
             file = folder / f"node-{i}-binding.json"
             file.write_text(json.dumps([shared[i]]), encoding="utf-8")
-            file.chmod(0o600)
+            os.chown(file, -1, self.agent_gid)
+            file.chmod(0o640)
             self.node_manifests.append(file)
+            cert_key = folder / f"node{i}.key"
+            os.chown(cert_key, -1, self.agent_gid)
+            cert_key.chmod(0o640)
+            core_bindings = folder / f"node-{i}-lease-authority.json"
+            core_bindings.write_text(json.dumps({"lab": {
+                "resourceId": self.resource_id, "executorId": self.executor_ids[i],
+                "minAuthorityGeneration": 1,
+            }}), encoding="utf-8")
+            core_bindings.chmod(0o600)
+            self.core_manifests.append(core_bindings)
+
+    def write_configs(self):
+        super().write_configs()
+        for i in range(2):
+            config = self.folder / f"node-{i}.json"
+            obj = json.loads(config.read_text(encoding="utf-8"))
+            obj["api"]["listen"] = str(self.sockets[i])
+            config.write_text(json.dumps(obj), encoding="utf-8")
+
+    def write_manifest(self):
+        super().write_manifest()
+        bindings = json.loads(self.manifest.read_text(encoding="utf-8"))
+        for i, binding in enumerate(bindings):
+            binding["ExecutorID"] = self.executor_ids[i]
+        self.manifest.write_text(json.dumps(bindings), encoding="utf-8")
+        self.manifest.chmod(0o600)
+
+    def _demote(self):
+        os.setgroups([])
+        os.setgid(self.agent_gid)
+        os.setuid(self.agent_uid)
+
+    def spawn(self, name, args, *, env):
+        if not name.startswith("agent"):
+            return super().spawn(name, args, env=env)
+        handle = (self.folder / f"{name}.log").open("a", encoding="utf-8")
+        self.handles.append(handle)
+        self.processes[name] = subprocess.Popen(
+            [str(x) for x in args], env=env, stdout=handle,
+            stderr=subprocess.STDOUT, start_new_session=True,
+            preexec_fn=self._demote,
+        )
+
+    def _agent_command(self, args, *, node, success=True):
+        result = subprocess.run(
+            [str(x) for x in args], env=self.env(node=node),
+            text=True, capture_output=True, timeout=15, check=False,
+            preexec_fn=self._demote,
+        )
+        require((result.returncode == 0) == success,
+                f"managed agent subprocess failed: {result.stderr[-900:]}")
+        return result
+
+    def get_policy(self, node):
+        result = self._agent_command(
+            [self.core, "api", "subscription-get",
+             f"--server=unix://{self.sockets[node]}", "--id=lab"],
+            node=node,
+        )
+        return json.loads(result.stdout)
+
+    def usage(self, node, *, key=None, success=True):
+        result = self._agent_command(
+            [self.control, "read-usage", "lab", key or self.keys[node]],
+            node=node, success=success,
+        )
+        return json.loads(result.stdout) if success else None
 
     def env(self, *, node=None, cert=None):
         env = super().env(node=node, cert=cert)
         env["ELX_CONTROL_LEASE_SEED_FILE"] = str(self.lease_seed)
         if node is not None:
+            env.pop("ELXRAY_POLICY_LOOPBACK", None)
+            env["ELXRAY_MODE"] = "managed"
             env["ELX_POLICY_BINDING"] = str(self.node_manifests[node])
+            env["ELXRAY_POLICY_SOCKET"] = str(self.sockets[node])
+            env["ELXRAY_CONTROL_LEASE_BINDINGS_FILE"] = str(self.core_manifests[node])
+            env["ELXRAY_AGENT_UID"] = str(self.agent_uid)
+            env["ELXRAY_AGENT_GID"] = str(self.agent_gid)
             env["ELXRAY_REQUIRE_CONTROL_LEASE"] = "1"
             env["ELXRAY_CONTROL_LEASE_PUBLIC_KEY"] = self.lease_public
             env["ELXRAY_CONTROL_LEASE_NODE_UUID"] = self.node_ids[node]
             env["ELX_AGENT_LEASE_REQUIRED"] = "1"
+            env["ELX_AGENT_MANAGED"] = "1"
         return env
 
     def seed(self):

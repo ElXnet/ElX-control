@@ -82,9 +82,27 @@ export TMPDIR="$work"
     go build -o "$ELX_CONTROL_BIN" ./cmd/elx-control
     bash scripts/elx-policy-smoke.sh
     python3 scripts/elx-vless-stop-smoke.py
+    python3 -m py_compile tests/e2e/test_multinode.py tests/e2e/test_lease_partition.py
     python3 tests/e2e/test_multinode.py
     python3 tests/e2e/test_rate_partition.py
-    python3 tests/e2e/test_lease_partition.py
+    # Managed production mode requires a different Unix UID for the node agent.
+    # The full two-process socket/lease partition fixture therefore needs root
+    # only for the test to launch a disposable nobody-UID agent. The other
+    # tests remain unprivileged. Do NOT skip this gate silently.
+    if [[ "$(id -u)" -eq 0 ]]; then
+        python3 tests/e2e/test_lease_partition.py
+    elif command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
+        (
+            # mktemp uses 0700; let the temporary nobody agent traverse
+            # the parent to run the already-built test-only binaries.
+            chmod 0711 "$work"
+            trap 'chmod 0700 "$work"' EXIT
+            sudo -n -E python3 tests/e2e/test_lease_partition.py
+        )
+    else
+        echo 'BLOCKED: managed SO_PEERCRED partition E2E requires root or passwordless sudo' >&2
+        exit 1
+    fi
     python3 tests/e2e/test_live_scheduler.py
     python3 tests/e2e/test_live_fup_scheduler.py
 )

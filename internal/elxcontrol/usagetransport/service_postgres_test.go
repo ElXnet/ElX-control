@@ -263,7 +263,7 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 	if err := fencetransport.Register(srv,db); err != nil { t.Fatal(err) }
 	currentBindings:=[]policytransport.Binding{{
 		Target:journal.Target{NodeID:binding.NodeID.String(),ResourceID:leaseResource.String()},
-		Subscription:sub,Epoch:1,PublicKey:pub,
+		Subscription:sub,ExecutorID:binding.ExecutorID.String(),Epoch:1,PublicKey:pub,
 	}}
 	if err:=policytransport.RegisterWithSource(srv,db,func()([]policytransport.Binding,error){
 		return currentBindings,nil
@@ -312,7 +312,7 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 	}
 	currentBindings=[]policytransport.Binding{{
 		Target:journal.Target{NodeID:binding.NodeID.String(),ResourceID:leaseResource.String()},
-		Subscription:"another-vless-profile",Epoch:1,PublicKey:pub,
+		Subscription:"another-vless-profile",ExecutorID:binding.ExecutorID.String(),Epoch:1,PublicKey:pub,
 	}}
 	if err:=good.Invoke(ctx,leaseRoute,wrapperspb.Bytes(leaseInput),&leaseWire);
 		status.Code(err)!=codes.PermissionDenied{
@@ -320,7 +320,7 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 	}
 	currentBindings=[]policytransport.Binding{{
 		Target:journal.Target{NodeID:binding.NodeID.String(),ResourceID:leaseResource.String()},
-		Subscription:sub,Epoch:1,PublicKey:pub,
+		Subscription:sub,ExecutorID:binding.ExecutorID.String(),Epoch:1,PublicKey:pub,
 	}}
 
 	// Even with an otherwise valid mTLS identity and subscription, an
@@ -381,11 +381,13 @@ func TestGRPCSignedAccountingRequiresVerifiedNodeAndCore(t *testing.T) {
 
 	var lease policytransport.Lease
 	if err:=json.Unmarshal(leaseWire.Value,&lease);err!=nil {t.Fatal(err)}
-	if lease.NodeID!=binding.NodeID || lease.Subscription!=sub ||
+	if lease.Version!=3 || lease.NodeID!=binding.NodeID || lease.ResourceID!=leaseResource ||
+		lease.ExecutorID!=binding.ExecutorID || lease.AuthorityGeneration!=1 || lease.Subscription!=sub ||
 		lease.NotAfter-lease.NotBefore!=15 || lease.CeilingUp!=100 || lease.CeilingDown!=100 ||
 		!ed25519.Verify(leasePub,
-			fmt.Appendf(nil,"elx-control-lease-v2\n%s\n%s\n%d\n%d\n%d\n%d\n%d",
-				lease.NodeID,lease.Subscription,lease.Sequence,lease.NotBefore,lease.NotAfter,lease.CeilingUp,lease.CeilingDown),
+			fmt.Appendf(nil,"elx-control-lease-v3\n%s\n%s\n%s\n%s\n%d\n%d\n%d\n%d\n%d\n%d",
+				lease.NodeID,lease.ResourceID,lease.ExecutorID,lease.Subscription,
+				lease.Sequence,lease.NotBefore,lease.NotAfter,lease.CeilingUp,lease.CeilingDown,lease.AuthorityGeneration),
 			lease.Signature) {
 		t.Fatalf("Control lease ticket is not node-bound or signature invalid: %+v",lease)
 	}

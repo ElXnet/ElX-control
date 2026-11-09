@@ -208,6 +208,9 @@ class Lab:
             env["ELX_TLS_CERT"] = str(self.folder / f"{cert}.pem")
             env["ELX_TLS_KEY"] = str(self.folder / f"{cert}.key")
         if node is not None:
+            # This fixture deliberately exercises legacy independent Xray.
+            # A managed node must instead use the protected Unix agent path.
+            env["ELXRAY_MODE"] = "standalone"
             env["ELXRAY_POLICY_LOOPBACK"] = f"127.0.0.1:{self.api_ports[node]}"
             env["ELXRAY_POLICY_STATE"] = str(self.folder / f"node-{node}-state.json")
         return env

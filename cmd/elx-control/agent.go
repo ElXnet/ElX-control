@@ -29,6 +29,13 @@ func serveAgent(ctx context.Context, args []string) error {
 	if fs.NArg() != 0 || *interval < 200*time.Millisecond || *interval > time.Hour {
 		return errors.New("invalid agent polling interval")
 	}
+	if os.Getenv("ELX_AGENT_MANAGED") == "1" {
+		if os.Getenv("ELX_AGENT_LEASE_REQUIRED") != "1" ||
+			os.Getenv("ELXRAY_POLICY_SOCKET") == "" ||
+			os.Getenv("ELXRAY_POLICY_LOOPBACK") != "" {
+			return errors.New("managed agent requires signed leases and authenticated Unix Commander only")
+		}
+	}
 	cfg, err := transportTLS()
 	if err != nil {
 		return err

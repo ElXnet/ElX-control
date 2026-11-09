@@ -29,6 +29,7 @@ const serviceName = "elx.node.v1.PolicyDelivery"
 type Binding struct {
 	Target       journal.Target
 	Subscription string
+	ExecutorID   string // assigned core executor UUID; mandatory for v3 lease issuance
 	Epoch        int64
 	PublicKey    ed25519.PublicKey
 }
@@ -36,6 +37,7 @@ type Binding struct {
 func (b Binding) Valid() bool {
 	return validID(b.Target.NodeID) && validID(b.Target.ResourceID) &&
 		len(b.Subscription) > 0 && len(b.Subscription) <= 1024 && b.Epoch > 0 &&
+		(b.ExecutorID == "" || validID(b.ExecutorID)) &&
 		len(b.PublicKey) == ed25519.PublicKeySize
 }
 
