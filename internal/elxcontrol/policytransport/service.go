@@ -219,9 +219,24 @@ func (s *server) confirm(ctx context.Context, in *wrapperspb.BytesValue) (*empty
 			return nil, status.Error(codes.PermissionDenied, "missing or invalid signed managed APPLIED receipt")
 		}
 	}
-	err = journal.ConfirmApplied(ctx, s.db, b.Target, cmd.ID, cmd.ExpectedRevision+1, sha256.Sum256(cmd.Payload))
+	if b.ExecutorID != "" {
+		var applied corepolicy.AppliedEvidence
+		if json.Unmarshal(ack.AppliedEvidence, &applied) != nil {
+			return nil, status.Error(codes.PermissionDenied, "invalid signed store witness receipt")
+		}
+		// Control's immutable storeId and revision HWM advance in the SAME
+		// PostgreSQL transaction as the journal operation ACK.
+		err = journal.ConfirmAppliedWithStoreWitness(ctx, s.db, b.Target, cmd.ID,
+			cmd.ExpectedRevision+1, sha256.Sum256(cmd.Payload), journal.CoreStoreReceipt{
+				ExecutorID: applied.ExecutorID, StoreID: applied.StoreID,
+				AuthorityGeneration: applied.AuthorityGeneration, CoreRevision: applied.Revision,
+				CoreIncarnation: applied.CoreIncarnation, LastOperationID: applied.OperationID,
+			})
+	} else {
+		err = journal.ConfirmApplied(ctx, s.db, b.Target, cmd.ID, cmd.ExpectedRevision+1, sha256.Sum256(cmd.Payload))
+	}
 	switch {
-	case errors.Is(err, journal.ErrRevision), errors.Is(err, journal.ErrReceipt):
+	case errors.Is(err, journal.ErrRevision), errors.Is(err, journal.ErrReceipt), errors.Is(err, journal.ErrStoreWitness):
 		return nil, status.Error(codes.FailedPrecondition, "receipt conflicts with journal")
 	case err != nil:
 		return nil, status.Error(codes.Unavailable, "journal unavailable")
