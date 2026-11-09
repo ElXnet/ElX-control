@@ -2,6 +2,8 @@ package corepolicy
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -34,6 +36,13 @@ func TestManagedAppliedReceiptSignatureAndMutatedBindings(t *testing.T) {
 		return fmt.Appendf(nil, "elx-applied-operation-v1\n%x\n%s\n%s\n%s\n%s\n%s\n%d\n%d\n%s\n%s\n%d",
 			challenge, v.OperationID, v.PayloadSHA256, v.NodeID, v.ExecutorID, v.ResourceID,
 			v.AuthorityGeneration, v.Revision, v.CoreIncarnation, v.StoreID, v.CompletedUnixNanos)
+	}
+	if ManagedMutationDigest(p)!="4255081ce063d5fc3a34d2099448e626e4202b80197d47d26b200ec2d19193bd" {
+		t.Fatal("Control operation body digest drifted from ElXray")
+	}
+	sum:=sha256.Sum256(transcript(evidence))
+	if hex.EncodeToString(sum[:])!="d354a37354ec0d68fa97f37352cb8cc456897832947772eee61d8ed81a47b8f7" {
+		t.Fatalf("signed receipt transcript drifted from ElXray: %x",sum)
 	}
 	evidence.Signature = ed25519.Sign(key, transcript(evidence))
 	check := func(v AppliedEvidence) bool {
