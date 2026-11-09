@@ -196,6 +196,19 @@ func printPolicyKey(args []string) error {
 }
 
 func openCore() (*corepolicy.Client, error) {
+	// A managed agent must never downgrade to loopback Commander, even
+	// when the legacy integration-test variable is accidentally supplied.
+	if os.Getenv("ELX_AGENT_MANAGED") == "1" {
+		if os.Getenv("ELX_AGENT_LEASE_REQUIRED") != "1" {
+			return nil, errors.New("managed agent requires Control lease enforcement")
+		}
+		if os.Getenv("ELXRAY_POLICY_LOOPBACK") != "" {
+			return nil, errors.New("managed agent refuses unauthenticated loopback Commander")
+		}
+		if os.Getenv("ELXRAY_POLICY_SOCKET") == "" {
+			return nil, errors.New("managed agent requires protected ElXray Unix socket")
+		}
+	}
 	if addr := os.Getenv("ELXRAY_POLICY_LOOPBACK"); addr != "" {
 		return corepolicy.OpenLoopback(addr)
 	}
