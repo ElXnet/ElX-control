@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/ElXnet/ElX-control/internal/elxcontrol/journal"
 )
 
 func TestControlLeaseV3GoldenTranscriptAndAdversarialSignature(t *testing.T) {
@@ -54,7 +55,19 @@ func TestControlLeaseV3GoldenTranscriptAndAdversarialSignature(t *testing.T) {
 }
 
 func TestManagedBindingRequiresCanonicalExecutorWhenIssued(t *testing.T) {
-	b := Binding{ExecutorID: "NOT-A-UUID"}
+	b := Binding{
+		Target: journal.Target{
+			NodeID: "11111111-1111-4111-8111-111111111111",
+			ResourceID: "22222222-2222-4222-8222-222222222222",
+		},
+		Subscription: "entitlement-A", Epoch: 9,
+		PublicKey: make(ed25519.PublicKey, ed25519.PublicKeySize),
+	}
+	b.ExecutorID = "33333333-3333-4333-8333-333333333333"
+	if !b.Valid() {
+		t.Fatal("valid executor binding rejected")
+	}
+	b.ExecutorID = "NOT-A-UUID"
 	if b.Valid() {
 		t.Fatal("invalid executor identity accepted by trusted manifest")
 	}
