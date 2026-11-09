@@ -3,12 +3,15 @@ package corepolicy
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/ed25519"
 	"encoding/hex"
+	"strconv"
 	"errors"
 	"fmt"
 	"math"
 	"net"
+	"github.com/google/uuid"
 	"path/filepath"
 	"time"
 
@@ -53,6 +56,16 @@ func OpenLoopback(address string) (*Client, error) {
 
 func (c *Client) Close() error { return c.conn.Close() }
 
+// ManagedOperation is issued by the trusted Control journal and pinned
+// core-executor binding; it is not extracted from a VPN client or request body.
+type ManagedOperation struct {
+	OperationID string
+	NodeID string
+	ExecutorID string
+	ResourceID string
+	AuthorityGeneration uint64
+}
+
 type Policy struct {
 	ID          string
 	Revision    uint64
@@ -64,7 +77,7 @@ type Policy struct {
 // Apply checks the live policy after the RPC. Its result only proves live
 // state and must never be used as a durable application receipt.
 func (c *Client) Apply(ctx context.Context, desired Policy) error {
-	_, err := c.apply(ctx, desired, "", nil)
+	_, err := c.apply(ctx, desired, "", nil, nil)
 	return err
 }
 
@@ -73,10 +86,30 @@ func (c *Client) ApplyWithProof(ctx context.Context, desired Policy, challenge s
 	if challenge == "" || len(challenge) > 128 || len(publicKey) != ed25519.PublicKeySize {
 		return nil, errors.New("invalid policy challenge")
 	}
-	return c.apply(ctx, desired, challenge, publicKey)
+	return c.apply(ctx, desired, challenge, publicKey, nil)
 }
 
-func (c *Client) apply(ctx context.Context, desired Policy, challenge string, publicKey ed25519.PublicKey) ([]byte, error) {
+// ApplyManagedWithProof requires the core to atomically journal this exact
+// Control operation before persisting/updating the live limiter. A signed
+// policy readback is accepted only after that journal reached APPLIED.
+func (c *Client) ApplyManagedWithProof(ctx context.Context, desired Policy, challenge string,
+	publicKey ed25519.PublicKey, operation ManagedOperation) ([]byte, error) {
+	for _, id := range []string{operation.OperationID, operation.NodeID, operation.ResourceID, operation.ExecutorID} {
+		parsed, err := uuid.Parse(id)
+		if err != nil || parsed == uuid.Nil || parsed.String() != id {
+			return nil, errors.New("invalid managed Control operation identity")
+		}
+	}
+	if operation.AuthorityGeneration == 0 {
+		return nil, errors.New("managed operation authority generation required")
+	}
+	if challenge == "" || len(challenge) > 128 || len(publicKey) != ed25519.PublicKeySize {
+		return nil, errors.New("invalid signed managed policy challenge")
+	}
+	return c.apply(ctx, desired, challenge, publicKey, &operation)
+}
+
+func (c *Client) apply(ctx context.Context, desired Policy, challenge string, publicKey ed25519.PublicKey, operation *ManagedOperation) ([]byte, error) {
 	if desired.ID == "" || desired.Revision < 2 || desired.Revision > math.MaxInt64 ||
 		desired.UplinkBps == 0 || desired.DownlinkBps == 0 {
 		return nil, errors.New("invalid runtime policy")
@@ -89,6 +122,19 @@ func (c *Client) apply(ctx context.Context, desired Policy, challenge string, pu
 		if _, _, err := c.readProof(ctx, desired.ID, challenge, publicKey); err != nil {
 			return nil, err
 		}
+	}
+	if operation != nil {
+		transcript := fmt.Appendf(nil, "elx-managed-update-v1\n%s\n%d\n%d\n%d\n%d\n%t",
+			desired.ID, desired.Revision-1, desired.Revision, desired.UplinkBps, desired.DownlinkBps, desired.Disabled)
+		digest := sha256.Sum256(transcript)
+		ctx = metadata.AppendToOutgoingContext(ctx,
+			"elx-op-id", operation.OperationID,
+			"elx-op-node", operation.NodeID,
+			"elx-op-executor", operation.ExecutorID,
+			"elx-op-resource", operation.ResourceID,
+			"elx-op-generation", strconv.FormatUint(operation.AuthorityGeneration, 10),
+			"elx-op-hash", hex.EncodeToString(digest[:]),
+		)
 	}
 	_, err := c.rpc.SetSubscription(ctx, &wire.SetSubscriptionRequest{
 		Id: desired.ID, ExpectedRevision: desired.Revision - 1, Revision: desired.Revision,
