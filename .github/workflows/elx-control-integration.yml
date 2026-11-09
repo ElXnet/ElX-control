@@ -91,9 +91,9 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: ElXnet/ElXray
-          # Paired stage-2 PR must test the actual matching core revision.
+          # Stage 3 and Stage 2 Control PRs must test matching core revision.
           # After merge into main, this expression automatically uses main.
-          ref: ${{ github.head_ref == 'feat/stage2-secure-core-local-agent-20261109' && 'feat/stage2-managed-security-20261109' || 'main' }}
+          ref: ${{ github.head_ref == 'feat/stage3-managed-operation-journal-20261109' && 'feat/stage3-durable-operations-20261109' || (github.head_ref == 'feat/stage2-secure-core-local-agent-20261109' && 'feat/stage2-managed-security-20261109' || 'main') }}
           path: ElXray
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -134,9 +134,9 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: ElXnet/ElXray
-          # Paired stage-2 PR must test the actual matching core revision.
+          # Stage 3 and Stage 2 Control PRs must test matching core revision.
           # After merge into main, this expression automatically uses main.
-          ref: ${{ github.head_ref == 'feat/stage2-secure-core-local-agent-20261109' && 'feat/stage2-managed-security-20261109' || 'main' }}
+          ref: ${{ github.head_ref == 'feat/stage3-managed-operation-journal-20261109' && 'feat/stage3-durable-operations-20261109' || (github.head_ref == 'feat/stage2-secure-core-local-agent-20261109' && 'feat/stage2-managed-security-20261109' || 'main') }}
           path: ElXray
       - name: Set up Go
         uses: actions/setup-go@v6
