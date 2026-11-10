@@ -8,6 +8,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/accounting"
@@ -49,6 +52,13 @@ func authenticatedNode(ctx context.Context) (uuid.UUID, error) {
 }
 
 func transportError(err error) error {
+	// Temporary disposable-test diagnostic. Never expose internal database
+	// errors to a remote node through a gRPC status and never enable it
+	// without an explicitly named local elx_test PostgreSQL DSN.
+	if os.Getenv("ELX_E2E_USAGE_DIAGNOSTICS") == "1" &&
+		strings.Contains(os.Getenv("ELX_CONTROL_POSTGRES_DSN"), "dbname=elx_test") {
+		fmt.Fprintf(os.Stderr, "ELX_E2E_USAGE_ERROR %T: %v\n", err, err)
+	}
 	switch {
 	case errors.Is(err, accounting.ErrSample):
 		return status.Error(codes.InvalidArgument, "invalid accounting source")
