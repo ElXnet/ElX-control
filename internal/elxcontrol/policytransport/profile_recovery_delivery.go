@@ -2,7 +2,6 @@ package policytransport
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 
@@ -95,6 +94,4 @@ func (s *server) nextTechnicalRecovery(ctx context.Context,
 	return wrapperspb.Bytes(data),nil
 }
 
-// A no-row path must never infer that an expired command succeeded: no core
-// proof, no Control APPLIED state transition, no capacity release.
-var _ = sql.ErrNoRows
+// No core proof means no Control APPLIED transition or capacity release.
