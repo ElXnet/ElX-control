@@ -379,8 +379,16 @@ func ApplyNext(ctx context.Context, conn grpc.ClientConnInterface, core Applier)
 					// Still return permanent invalid identity/signature
 					// errors unchanged, with no local permission grant.
 					if code := status.Code(leaseErr); code == codes.Unavailable ||
-						code == codes.DeadlineExceeded || code == codes.FailedPrecondition {
-						return status.Error(codes.Unavailable, "updated signed rate lease not yet available")
+						code == codes.DeadlineExceeded || code == codes.FailedPrecondition ||
+						(code == codes.PermissionDenied &&
+							strings.Contains(leaseErr.Error(), "Control lease or independent store HWM not accepted")) {
+						// An explicit failed core witness is not a grant.
+						// During a concurrent scheduler revision, the old
+						// witness can expire before renewal. Keep the
+						// reserved command INTENT, never crash the agent,
+						// and try a fresh authoritative lease on next poll.
+						return status.Error(codes.Unavailable,
+							"Control signed lease/store witness not yet accepted for pending rate operation")
 					}
 					return leaseErr
 				}
