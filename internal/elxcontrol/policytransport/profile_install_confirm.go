@@ -3,7 +3,6 @@ package policytransport
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
