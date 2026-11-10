@@ -92,6 +92,36 @@ func (c *Client) InstallTechnicalProfile(ctx context.Context, job []byte) (Techn
 	return installed, nil
 }
 
+// ReadTechnicalInstalledProof asks the running core to authenticate a
+// Control-signed v2 INSTALL job and sign its live VLESS readback. The local
+// agent is not permitted to mark Control APPLIED; the authoritative backend
+// must verify this Ed25519 proof against its pinned store/incarnation.
+func (c *Client) ReadTechnicalInstalledProof(ctx context.Context, job []byte) (InstallReceipt, error) {
+	if c == nil || c.conn == nil || len(job) == 0 || len(job) > 4096 {
+		return InstallReceipt{}, errors.New("missing or oversized signed technical install job")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var response wrapperspb.BytesValue
+	if err := c.conn.Invoke(ctx, technicalProfileService+"InstalledProof",
+		wrapperspb.Bytes(job), &response, grpc.MaxCallRecvMsgSize(4096)); err != nil {
+		return InstallReceipt{}, err
+	}
+	if len(response.Value) == 0 || len(response.Value) > 4096 {
+		return InstallReceipt{}, errors.New("invalid core-signed installed evidence size")
+	}
+	var proof InstallReceipt
+	if err := json.Unmarshal(response.Value, &proof); err != nil {
+		return InstallReceipt{}, err
+	}
+	if proof.Version != 1 || proof.OperationID == uuid.Nil ||
+		proof.ProfileID == uuid.Nil || proof.StoreID == uuid.Nil ||
+		proof.CoreIncarnation == uuid.Nil || len(proof.Signature) != 64 {
+		return InstallReceipt{}, errors.New("missing required core-signed installed evidence")
+	}
+	return proof, nil
+}
+
 // ReadbackTechnicalProfile is read-only and must not be confused with signed
 // proof of live VLESS AddUser application.
 func (c *Client) ReadbackTechnicalProfile(ctx context.Context, profileID string) (TechnicalPrepared, error) {
