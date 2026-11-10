@@ -72,3 +72,38 @@ func TestManagedBindingRequiresCanonicalExecutorWhenIssued(t *testing.T) {
 		t.Fatal("invalid executor identity accepted by trusted manifest")
 	}
 }
+
+func TestTwoSignedControlSequencesMayShareExactAbsoluteExpiry(t *testing.T) {
+	// Control issues sequences at nanosecond resolution, but the signed
+	// NotAfter deadline has second resolution. Distinct legitimate tickets
+	// frequently carry exactly the same expiry. The core must check the
+	// monotonically higher signed sequence, not require a later expiration.
+	base := Lease{
+		Version:             3,
+		NodeID:              uuid.MustParse("11111111-1111-4111-8111-111111111111"),
+		ResourceID:          uuid.MustParse("22222222-2222-4222-8222-222222222222"),
+		ExecutorID:          uuid.MustParse("33333333-3333-4333-8333-333333333333"),
+		Subscription:        "lab",
+		AuthorityGeneration: 9,
+		Sequence:            1700000000000000001,
+		NotBefore:           1700000000,
+		NotAfter:            1700000015,
+		CeilingUp:           250000,
+		CeilingDown:         250000,
+	}
+	next := base
+	next.Sequence++
+	if next.NotAfter != base.NotAfter || next.Sequence <= base.Sequence {
+		t.Fatal("fixture does not represent second-resolution Control leases")
+	}
+	key := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x22}, ed25519.SeedSize))
+	pub := key.Public().(ed25519.PublicKey)
+	firstSig := ed25519.Sign(key, base.transcript())
+	secondSig := ed25519.Sign(key, next.transcript())
+	if bytes.Equal(firstSig, secondSig) ||
+		!ed25519.Verify(pub, base.transcript(), firstSig) ||
+		!ed25519.Verify(pub, next.transcript(), secondSig) ||
+		ed25519.Verify(pub, next.transcript(), firstSig) {
+		t.Fatal("same-expiry signed Control lease sequence lost anti-replay binding")
+	}
+}
