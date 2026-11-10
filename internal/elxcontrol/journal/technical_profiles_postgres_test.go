@@ -1,6 +1,8 @@
 package journal
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"crypto/ed25519"
 	"database/sql"
 	"errors"
@@ -196,5 +198,61 @@ func TestStage4TechnicalProfileReservationIsDurableButNotAdmitted(t *testing.T) 
 		if !errors.Is(result, ErrProfileConflict) {
 			t.Fatalf("concurrent profile alias bypassed existing email/tag exclusion: %v", result)
 		}
+	}
+
+	// Only independently pinned core public key, persistent store and boot
+	// may advance an INSTALL to APPLIED. A copied/agent-fabricated readback
+	// never changes the authoritative PostgreSQL operation state.
+	boot := uuid.New()
+	corePublic, corePrivate, err := ed25519.GenerateKey(nil)
+	checkError(t, err, nil)
+	_, err = db.ExecContext(ctx, `INSERT INTO elx_core_identities(node_id,incarnation,public_key)
+		VALUES($1,$2,$3)`, target.NodeID, boot, corePublic)
+	checkError(t, err, nil)
+	_, err = db.ExecContext(ctx, `UPDATE elx_core_store_witnesses
+		SET core_incarnation=$1,last_operation_id=$2
+		WHERE node_id=$3 AND resource_id=$4`,
+		boot, install.OperationID, target.NodeID, target.ResourceID)
+	checkError(t, err, nil)
+	proofHash := sha256.Sum256(install.Transcript())
+	proof := corepolicy.InstallReceipt{
+		Version: 1, OperationID: install.OperationID, ProfileID: install.ProfileID,
+		NodeID: install.NodeID, ResourceID: install.ResourceID,
+		ExecutorID: install.ExecutorID, StoreID: uuid.MustParse(storeID),
+		CoreIncarnation: boot, AuthorityGeneration: install.AuthorityGeneration,
+		PolicyRevision: install.PolicyRevision,
+		TranscriptSHA256: hex.EncodeToString(proofHash[:]),
+	}
+	proof.Signature = ed25519.Sign(corePrivate, proof.Transcript())
+	badProof := proof
+	badProof.Signature = append([]byte(nil), proof.Signature...)
+	badProof.Signature[0] ^= 1
+	if err := ConfirmTechnicalInstalled(ctx, db, badProof); !errors.Is(err, corepolicy.ErrInstallProof) {
+		t.Fatalf("forged installed evidence advanced PostgreSQL: %v", err)
+	}
+	badProof = proof
+	badProof.CoreIncarnation = uuid.New()
+	badProof.Signature = ed25519.Sign(corePrivate, badProof.Transcript())
+	if err := ConfirmTechnicalInstalled(ctx, db, badProof); !errors.Is(err, corepolicy.ErrInstallProof) {
+		t.Fatalf("unwitnessed new core boot advanced technical install: %v", err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT state FROM elx_technical_profiles WHERE profile_id=$1`,
+		install.ProfileID).Scan(&afterInstallPhase); err != nil || afterInstallPhase != "prepared" {
+		t.Fatalf("forged installed proof changed technical profile: %s %v", afterInstallPhase, err)
+	}
+	if err := ConfirmTechnicalInstalled(ctx, db, proof); err != nil {
+		t.Fatalf("pinned signed installed receipt did not commit: %v", err)
+	}
+	if err := ConfirmTechnicalInstalled(ctx, db, proof); err != nil {
+		t.Fatalf("idempotent signed installed receipt replay failed: %v", err)
+	}
+	var finalProfile, finalOp string
+	err = db.QueryRowContext(ctx, `SELECT p.state,o.state FROM elx_technical_profiles p
+	    JOIN elx_technical_profile_operations o ON o.profile_id=p.profile_id
+	    WHERE p.profile_id=$1 AND o.operation_id=$2`,
+		install.ProfileID, install.OperationID).Scan(&finalProfile, &finalOp)
+	if err != nil || finalProfile != "installed" || finalOp != "APPLIED" {
+		t.Fatalf("core-signed INSTALLED receipt was not atomic: profile=%s operation=%s err=%v",
+			finalProfile, finalOp, err)
 	}
 }
