@@ -86,10 +86,10 @@ func QueueTechnicalProfile(ctx context.Context, db *sql.DB,
 	}
 	defer tx.Rollback()
 
-	var epoch, revision, committedUp, committedDown int64
+	var epoch, revision, committedUp, committedDown, witnessEpoch, witnessRevision int64
 	var executor string
 	err = tx.QueryRowContext(ctx, `SELECT g.epoch,t.revision+1,g.committed_up,
-	    g.committed_down,w.executor_id::text
+	    g.committed_down,w.executor_id::text,w.authority_generation,w.core_revision
 	    FROM elx_rate_grants g
 	    JOIN elx_operation_targets t USING(node_id,resource_id)
 	    JOIN elx_core_store_witnesses w USING(node_id,resource_id)
@@ -98,7 +98,7 @@ func QueueTechnicalProfile(ctx context.Context, db *sql.DB,
 	    AND e.enabled=true AND e.valid_until>clock_timestamp()
 	    FOR UPDATE OF g,t,w`,
 		g.NodeID, g.ResourceID, r.EntitlementID).
-		Scan(&epoch, &revision, &committedUp, &committedDown, &executor)
+		Scan(&epoch, &revision, &committedUp, &committedDown, &executor, &witnessEpoch, &witnessRevision)
 	if errors.Is(err, sql.ErrNoRows) {
 		return out, ErrProfileAuthority
 	}
@@ -108,6 +108,8 @@ func QueueTechnicalProfile(ctx context.Context, db *sql.DB,
 	if epoch <= 0 || revision <= 0 || committedUp <= 0 || committedDown <= 0 ||
 		uint64(epoch) != g.AuthorityGeneration ||
 		uint64(revision) != g.PolicyRevision ||
+		uint64(witnessEpoch) != g.AuthorityGeneration ||
+		uint64(witnessRevision) != g.PolicyRevision ||
 		executor != g.ExecutorID.String() {
 		return out, ErrProfileAuthority
 	}
