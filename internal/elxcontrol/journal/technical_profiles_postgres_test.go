@@ -255,4 +255,73 @@ func TestStage4TechnicalProfileReservationIsDurableButNotAdmitted(t *testing.T) 
 		t.Fatalf("core-signed INSTALLED receipt was not atomic: profile=%s operation=%s err=%v",
 			finalProfile, finalOp, err)
 	}
+	// A later signed v2 RETIRE first reserves a distinct operation, without
+	// releasing any session owner or the node's existing bandwidth grant.
+	retire := install
+	retire.Action = "retire"
+	retire.OperationID = uuid.New()
+	retire.ProfileGeneration = 2
+	retireReq := RetireReservation{
+		Grant: retire, EntitlementID: entitlement, PinnedSubscription: "lab",
+	}
+	reserved, err := QueueTechnicalRetire(ctx, db, retireReq)
+	if err != nil || reserved.State != "INTENT" || reserved.AlreadyQueued {
+		t.Fatalf("signed RETIRE was not persisted: %+v %v", reserved, err)
+	}
+	retryRetire, err := QueueTechnicalRetire(ctx, db, retireReq)
+	if err != nil || !retryRetire.AlreadyQueued || retryRetire.Digest != reserved.Digest {
+		t.Fatalf("signed RETIRE idempotency failed: %+v %v", retryRetire, err)
+	}
+	sentRetire, err := NextTechnicalRetire(ctx, db, target, executor, "lab")
+	if err != nil || string(sentRetire.Transcript()) != string(retire.Transcript()) {
+		t.Fatalf("Control RETIRE delivery was not exact: %+v %v", sentRetire, err)
+	}
+	if _, err := NextTechnicalRetire(ctx, db, target, uuid.NewString(), "lab"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("wrong executor could read signed RETIRE: %v", err)
+	}
+	retireCollision := retireReq
+	retireCollision.Grant.OperationID = uuid.New()
+	if _, err := QueueTechnicalRetire(ctx, db, retireCollision); !errors.Is(err, ErrProfileConflict) {
+		t.Fatalf("second RETIRE unexpectedly acquired old VLESS profile: %v", err)
+	}
+	retireHash := sha256.Sum256(retire.Transcript())
+	retireProof := corepolicy.RetireReceipt{
+		Version: 1, OperationID: retire.OperationID, ProfileID: retire.ProfileID,
+		NodeID: retire.NodeID, ResourceID: retire.ResourceID,
+		ExecutorID: retire.ExecutorID, StoreID: uuid.MustParse(storeID),
+		CoreIncarnation: boot, AuthorityGeneration: retire.AuthorityGeneration,
+		PolicyRevision: retire.PolicyRevision, RetireGeneration: retire.ProfileGeneration,
+		TranscriptSHA256: hex.EncodeToString(retireHash[:]),
+	}
+	retireProof.Signature = ed25519.Sign(corePrivate, retireProof.Transcript())
+	forgedRetire := retireProof
+	forgedRetire.Signature = append([]byte(nil), retireProof.Signature...)
+	forgedRetire.Signature[0] ^= 1
+	if err := ConfirmTechnicalRetired(ctx, db, forgedRetire); !errors.Is(err, corepolicy.ErrRetireProof) {
+		t.Fatalf("forged RETIRE proof changed central operation: %v", err)
+	}
+	if err := ConfirmTechnicalRetired(ctx, db, retireProof); err != nil {
+		t.Fatalf("pinned signed RETIRED proof was rejected: %v", err)
+	}
+	if err := ConfirmTechnicalRetired(ctx, db, retireProof); err != nil {
+		t.Fatalf("exact signed RETIRED retry was not idempotent: %v", err)
+	}
+	var finalRetire, finalRetireOp string
+	err = db.QueryRowContext(ctx, `SELECT p.state,o.state
+	  FROM elx_technical_profiles p JOIN elx_technical_profile_operations o ON o.profile_id=p.profile_id
+	  WHERE p.profile_id=$1 AND o.operation_id=$2`,
+		retire.ProfileID, retire.OperationID).Scan(&finalRetire, &finalRetireOp)
+	if err != nil || finalRetire != "retired" || finalRetireOp != "APPLIED" {
+		t.Fatalf("signed RETIRE did not advance atomically: %s %s %v",
+			finalRetire, finalRetireOp, err)
+	}
+	var preservedUp, preservedDown, owners int64
+	err = db.QueryRowContext(ctx, `SELECT g.committed_up,g.committed_down,e.active_slots
+	  FROM elx_rate_grants g JOIN elx_entitlements e ON e.id=g.entitlement_id
+	  WHERE g.node_id=$1 AND g.resource_id=$2`, target.NodeID, target.ResourceID).
+		Scan(&preservedUp,&preservedDown,&owners)
+	if err != nil || preservedUp != 100 || preservedDown != 100 || owners != 1 {
+		t.Fatalf("RETIRE incorrectly released bandwidth or owner slots: up=%d down=%d slots=%d err=%v",
+			preservedUp,preservedDown,owners,err)
+	}
 }
