@@ -194,8 +194,8 @@ func QueueTechnicalProfile(ctx context.Context, db *sql.DB,
 // omitted rather than converted into an unsafe job.
 func NextTechnicalProfile(ctx context.Context, db *sql.DB,
 	target Target, executorID, subscriptionID string) (corepolicy.ProfileGrantIntent, error) {
-	if db == nil || !canonical(target.NodeID) || !canonical(target.ResourceID) ||
-		!canonical(executorID) || !technicalLabel.MatchString(subscriptionID) {
+	if db == nil || !uuidValid(target.NodeID) || !uuidValid(target.ResourceID) ||
+		!uuidValid(executorID) || !technicalLabel.MatchString(subscriptionID) {
 		return corepolicy.ProfileGrantIntent{}, ErrInvalid
 	}
 	now := time.Now().UTC()
