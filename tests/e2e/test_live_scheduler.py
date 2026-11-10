@@ -37,7 +37,7 @@ class JournaledSchedulerLab(LeasedLab):
         require((core_repo / "go.mod").is_file(),
                 "matching Stage-4 ElXray module is required for journal provisioning")
         runner = subprocess.run([
-            "go", "run", str(Path(__file__).with_name("provision_managed_core.go")),
+            "go", "run", "-tags=elx_e2e_provision", str(Path(__file__).with_name("provision_managed_core.go")),
             self.resource_id,
             str(folder / "node-0-state.json"), str(self.journals[0]), self.store_ids[0],
             str(folder / "node-1-state.json"), str(self.journals[1]), self.store_ids[1],
