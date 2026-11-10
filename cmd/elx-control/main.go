@@ -55,8 +55,13 @@ func run(ctx context.Context, args []string, dsn string) error {
 	if err := db.PingContext(setup); err != nil {
 		return errors.New("cannot connect to Control database")
 	}
-	if err := journal.Migrate(setup, db); err != nil {
-		return err
+	// Forensic inspection must never run migrations or modify the primary.
+	// An unprovisioned/outdated schema should fail the SELECT, not be
+	// silently upgraded by a supposedly read-only command.
+	if args[0] != "inspect-technical-recovery" {
+		if err := journal.Migrate(setup, db); err != nil {
+			return err
+		}
 	}
 	switch args[0] {
 	case "inspect-technical-recovery":
