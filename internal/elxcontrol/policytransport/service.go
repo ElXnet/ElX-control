@@ -59,6 +59,9 @@ func (r Rates) Valid() bool {
 type Job struct {
 	PublicKey  ed25519.PublicKey
 	ResourceID string `json:",omitempty"`
+	NodeID string
+	ExecutorID string
+	AuthorityGeneration uint64
 	Operation  string
 	Policy     corepolicy.Policy
 	Challenge  string
@@ -68,6 +71,7 @@ type receipt struct {
 	ResourceID string `json:",omitempty"`
 	Operation  string
 	Proof      []byte
+	AppliedEvidence []byte `json:",omitempty"`
 }
 
 type server struct {
@@ -146,7 +150,9 @@ func (b Binding) job(cmd journal.Command) (Job, error) {
 		UplinkBps: rates.Up, DownlinkBps: rates.Down, Disabled: rates.Disabled}
 	challenge := sha256.Sum256(fmt.Appendf(nil, "elx-command-v1\n%s\n%s\n%s\n%d\n%x",
 		b.Target.NodeID, b.Target.ResourceID, cmd.ID, b.Epoch, sha256.Sum256(cmd.Payload)))
-	return Job{PublicKey: b.PublicKey, ResourceID: b.Target.ResourceID, Operation: cmd.ID, Policy: policy, Challenge: fmt.Sprintf("%x", challenge)}, nil
+	return Job{PublicKey: b.PublicKey, ResourceID: b.Target.ResourceID, NodeID:b.Target.NodeID,
+		ExecutorID:b.ExecutorID, AuthorityGeneration:uint64(b.Epoch),
+		Operation: cmd.ID, Policy: policy, Challenge: fmt.Sprintf("%x", challenge)}, nil
 }
 
 func (s *server) next(ctx context.Context, _ *emptypb.Empty) (*wrapperspb.BytesValue, error) {
@@ -205,9 +211,32 @@ func (s *server) confirm(ctx context.Context, in *wrapperspb.BytesValue) (*empty
 	if !corepolicy.VerifyProof(b.PublicKey, job.Challenge, job.Policy, ack.Proof) {
 		return nil, status.Error(codes.PermissionDenied, "invalid durable policy signature")
 	}
-	err = journal.ConfirmApplied(ctx, s.db, b.Target, cmd.ID, cmd.ExpectedRevision+1, sha256.Sum256(cmd.Payload))
+	if b.ExecutorID != "" {
+		if !corepolicy.VerifyAppliedEvidence(b.PublicKey, job.Challenge, corepolicy.ManagedOperation{
+			OperationID: job.Operation, NodeID: job.NodeID, ExecutorID: job.ExecutorID,
+			ResourceID: job.ResourceID, AuthorityGeneration: job.AuthorityGeneration,
+		}, job.Policy, ack.AppliedEvidence) {
+			return nil, status.Error(codes.PermissionDenied, "missing or invalid signed managed APPLIED receipt")
+		}
+	}
+	if b.ExecutorID != "" {
+		var applied corepolicy.AppliedEvidence
+		if json.Unmarshal(ack.AppliedEvidence, &applied) != nil {
+			return nil, status.Error(codes.PermissionDenied, "invalid signed store witness receipt")
+		}
+		// Control's immutable storeId and revision HWM advance in the SAME
+		// PostgreSQL transaction as the journal operation ACK.
+		err = journal.ConfirmAppliedWithStoreWitness(ctx, s.db, b.Target, cmd.ID,
+			cmd.ExpectedRevision+1, sha256.Sum256(cmd.Payload), journal.CoreStoreReceipt{
+				ExecutorID: applied.ExecutorID, StoreID: applied.StoreID,
+				AuthorityGeneration: applied.AuthorityGeneration, CoreRevision: applied.Revision,
+				CoreIncarnation: applied.CoreIncarnation, LastOperationID: applied.OperationID,
+			})
+	} else {
+		err = journal.ConfirmApplied(ctx, s.db, b.Target, cmd.ID, cmd.ExpectedRevision+1, sha256.Sum256(cmd.Payload))
+	}
 	switch {
-	case errors.Is(err, journal.ErrRevision), errors.Is(err, journal.ErrReceipt):
+	case errors.Is(err, journal.ErrRevision), errors.Is(err, journal.ErrReceipt), errors.Is(err, journal.ErrStoreWitness):
 		return nil, status.Error(codes.FailedPrecondition, "receipt conflicts with journal")
 	case err != nil:
 		return nil, status.Error(codes.Unavailable, "journal unavailable")
@@ -219,6 +248,7 @@ type service interface {
 	next(context.Context, *emptypb.Empty) (*wrapperspb.BytesValue, error)
 	confirm(context.Context, *wrapperspb.BytesValue) (*emptypb.Empty, error)
 	lease(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
+	witness(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
 	nextRateBarrier(context.Context, *emptypb.Empty) (*wrapperspb.BytesValue, error)
 	confirmRateBarrier(context.Context, *wrapperspb.BytesValue) (*emptypb.Empty, error)
 }
@@ -260,6 +290,7 @@ func register(g *grpc.Server, db *sql.DB, source func()([]Binding,error), bindin
 			{MethodName: "Next", Handler: handler("Next", (*server).next)},
 			{MethodName: "Confirm", Handler: handler("Confirm", (*server).confirm)},
 			{MethodName: "Lease", Handler: handler("Lease", (*server).lease)},
+			{MethodName: "StoreWitness", Handler: handler("StoreWitness", (*server).witness)},
 			{MethodName: "RateBarrierNext", Handler: handler("RateBarrierNext", (*server).nextRateBarrier)},
 			{MethodName: "RateBarrierConfirm", Handler: handler("RateBarrierConfirm", (*server).confirmRateBarrier)},
 		},
@@ -285,6 +316,10 @@ type Applier interface {
 	ApplyWithProof(context.Context, corepolicy.Policy, string, ed25519.PublicKey) ([]byte, error)
 }
 
+type ManagedApplier interface {
+	ApplyManagedWithProof(context.Context, corepolicy.Policy, string, ed25519.PublicKey, corepolicy.ManagedOperation) ([]byte, error)
+}
+
 // ApplyNext pulls one command, applies it locally and sends its core proof.
 func ApplyNext(ctx context.Context, conn grpc.ClientConnInterface, core Applier) error {
 	var data wrapperspb.BytesValue
@@ -295,11 +330,42 @@ func ApplyNext(ctx context.Context, conn grpc.ClientConnInterface, core Applier)
 	if err := json.Unmarshal(data.Value, &job); err != nil {
 		return err
 	}
-	proof, err := core.ApplyWithProof(ctx, job.Policy, job.Challenge, job.PublicKey)
+	var proof []byte
+	var err error
+	if job.ExecutorID != "" {
+		// When v3 manifest assigns a concrete executor, neither agent nor
+		// library may downgrade the job to the legacy operation-less RPC.
+		managed, ok := core.(ManagedApplier)
+		if !ok || !validID(job.NodeID) || !validID(job.ExecutorID) || !validID(job.ResourceID) ||
+			!validID(job.Operation) || job.AuthorityGeneration == 0 {
+			return status.Error(codes.FailedPrecondition, "managed journal adapter unavailable or unbound")
+		}
+		proof, err = managed.ApplyManagedWithProof(ctx, job.Policy, job.Challenge, job.PublicKey, corepolicy.ManagedOperation{
+			OperationID: job.Operation, NodeID: job.NodeID, ResourceID: job.ResourceID,
+			ExecutorID: job.ExecutorID, AuthorityGeneration: job.AuthorityGeneration,
+		})
+	} else {
+		proof, err = core.ApplyWithProof(ctx, job.Policy, job.Challenge, job.PublicKey)
+	}
 	if err != nil {
 		return err
 	}
-	payload, err := json.Marshal(receipt{ResourceID: job.ResourceID, Operation: job.Operation, Proof: proof})
+	var appliedEvidence []byte
+	if job.ExecutorID != "" {
+		if len(proof) <= ed25519.SignatureSize {
+			return status.Error(codes.FailedPrecondition, "managed operation lacks separately signed APPLIED receipt")
+		}
+		appliedEvidence = append([]byte(nil), proof[ed25519.SignatureSize:]...)
+		proof = proof[:ed25519.SignatureSize]
+		if !corepolicy.VerifyAppliedEvidence(job.PublicKey, job.Challenge, corepolicy.ManagedOperation{
+			OperationID: job.Operation, NodeID: job.NodeID, ExecutorID: job.ExecutorID,
+			ResourceID: job.ResourceID, AuthorityGeneration: job.AuthorityGeneration,
+		}, job.Policy, appliedEvidence) {
+			return status.Error(codes.PermissionDenied, "managed receipt signature mismatch")
+		}
+	}
+	payload, err := json.Marshal(receipt{ResourceID: job.ResourceID, Operation: job.Operation,
+		Proof: proof, AppliedEvidence: appliedEvidence})
 	if err != nil {
 		return err
 	}
