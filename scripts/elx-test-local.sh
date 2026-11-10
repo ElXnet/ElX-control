@@ -89,21 +89,39 @@ export TMPDIR="$work"
     # The full two-process socket/lease partition fixture therefore needs root
     # only for the test to launch a disposable nobody-UID agent. The other
     # tests remain unprivileged. Do NOT skip this gate silently.
+    # All three suites use LeasedLab, which must start two managed cores
+    # and fork a separate nobody-UID Unix-socket agent. Running only the
+    # first suite as root silently breaks scheduler/failover regression.
+    managed_suites=(
+        tests/e2e/test_lease_partition.py
+        tests/e2e/test_live_scheduler.py
+        tests/e2e/test_live_fup_scheduler.py
+    )
     if [[ "$(id -u)" -eq 0 ]]; then
-        python3 tests/e2e/test_lease_partition.py
+        for suite in "${managed_suites[@]}"; do
+            python3 "$suite"
+        done
     elif command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
         (
-            # mktemp uses 0700; let the temporary nobody agent traverse
-            # the parent to run the already-built test-only binaries.
+            # Root-owned fixture binaries remain inaccessible to nobody;
+            # 0711 permits traversal but never gives guest write access.
             chmod 0711 "$work"
             trap 'chmod 0700 "$work"' EXIT
-            sudo -n -E python3 tests/e2e/test_lease_partition.py
+            for suite in "${managed_suites[@]}"; do
+                # -E is ignored by some hosted sudo policies. Forward
+                # only the disposable fixture's exact required variables.
+                sudo -n /usr/bin/env \
+                    ELXRAY_BIN="$ELXRAY_BIN" \
+                    ELX_CONTROL_BIN="$ELX_CONTROL_BIN" \
+                    ELX_CONTROL_POSTGRES_DSN="$ELX_CONTROL_POSTGRES_DSN" \
+                    ELX_TEST_POSTGRES_DSN="$ELX_TEST_POSTGRES_DSN" \
+                    TMPDIR="$TMPDIR" \
+                    python3 "$suite"
+            done
         )
     else
-        echo 'BLOCKED: managed SO_PEERCRED partition E2E requires root or passwordless sudo' >&2
+        echo 'BLOCKED: all managed peercred/scheduler E2E suites require root or passwordless sudo' >&2
         exit 1
     fi
-    python3 tests/e2e/test_live_scheduler.py
-    python3 tests/e2e/test_live_fup_scheduler.py
 )
 echo 'PASS: ElX local suite'

@@ -28,10 +28,15 @@ class LeasedLab(Lab):
         self.executor_ids = [str(uuid.uuid4()) for _ in range(2)]
         self.sockets = [folder / f"node-{i}-commander.sock" for i in range(2)]
         super().__init__(folder)
-        # The agent needs traversal, but may never write the socket directory.
-        # Secrets remain root-owned; selected agent TLS key/manifest files
-        # are read-only for its group.
-        folder.chmod(0o755)
+        # The core's Unix Commander requires its immediate parent directory
+        # owned by core and with no public permissions or group write.
+        # Nobody-agent may traverse by the explicit protected group only;
+        # the socket itself is later installed as root:agent-gid 0660.
+        # A 0755 directory makes the managed core refuse boot.
+        os.chown(folder, -1, self.agent_gid)
+        folder.chmod(0o710)
+        require(folder.stat().st_mode & 0o027 == 0,
+                "test Unix Commander directory permissions are too broad")
         self.entitlement = str(uuid.uuid4())
         self.lease_seed = folder / "control-lease-seed.key"
         self.lease_seed.write_text(secrets.token_hex(32), encoding="ascii")

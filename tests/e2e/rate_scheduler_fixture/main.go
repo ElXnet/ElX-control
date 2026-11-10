@@ -28,16 +28,16 @@ func canonical(raw string) bool {
 func seed(ctx context.Context, db *sql.DB, args []string) error {
 	// Existing seed_lease.go has already provisioned the exact entitlement,
 	// pinned cores, policy revisions and committed rate grants.
-	if len(args) != 8 {
-		return errors.New("seed: entitlement resource node0 incarnation0 key0 node1 incarnation1 key1")
+	if len(args) != 10 {
+		return errors.New("seed: entitlement resource node0 incarnation0 key0 executor0 node1 incarnation1 key1 executor1")
 	}
-	for _, i := range []int{0, 1, 2, 3, 5, 6} {
+	for _, i := range []int{0, 1, 2, 3, 5, 6, 7, 9} {
 		if !canonical(args[i]) {
 			return fmt.Errorf("invalid fixture UUID at argument %d", i)
 		}
 	}
 	signerKeys := make([][]byte, 2)
-	for i, position := range []int{4, 7} {
+	for i, position := range []int{4, 8} {
 		key, err := base64.StdEncoding.DecodeString(args[position])
 		if err != nil || len(key) != 32 {
 			return errors.New("invalid pinned ElXray public key")
@@ -53,11 +53,11 @@ func seed(ctx context.Context, db *sql.DB, args []string) error {
 	if _, err := store.CreateSchedule(ctx, args[0], schedule); err != nil {
 		return fmt.Errorf("create acceptance accounting schedule: %w", err)
 	}
-	for i, position := range []int{2, 5} {
+	for i, position := range []int{2, 6} {
 		provision := management.UsageProvision{
 			ScheduleID: schedule.ScheduleID, NodeID: args[position],
 			ResourceID: args[1], Incarnation: args[position+1],
-			ExecutorID: uuid.NewString(), AccountingID: uuid.NewString(),
+			ExecutorID: args[position+3], AccountingID: uuid.NewString(),
 			Generation: 1, SubscriptionID: "lab",
 			ExpectedEpoch: 1, ExpectedPublicKey: signerKeys[i],
 		}
@@ -174,7 +174,7 @@ func readFUPState(ctx context.Context,db *sql.DB,entitlement string) error {
 
 func main() {
 	if len(os.Args) < 3 || (os.Args[1] != "seed" && os.Args[1] != "inspect" && os.Args[1] != "arm-fup" && os.Args[1] != "fup-state") {
-		fmt.Fprintln(os.Stderr, "usage: rate-scheduler-fixture seed <8 args> | inspect|arm-fup|fup-state <entitlement>")
+		fmt.Fprintln(os.Stderr, "usage: rate-scheduler-fixture seed <10 args> | inspect|arm-fup|fup-state <entitlement>")
 		os.Exit(2)
 	}
 	dsn := os.Getenv("ELX_CONTROL_POSTGRES_DSN")
