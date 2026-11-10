@@ -49,6 +49,13 @@ func serveAgent(ctx context.Context, args []string) error {
 	if retireEnabled == "1" && technical != "1" {
 		return errors.New("signed RETIRE requires pinned managed technical agent authority")
 	}
+	recoveryEnabled := os.Getenv("ELX_AGENT_TECHNICAL_RECOVERY")
+	if recoveryEnabled != "" && recoveryEnabled != "1" {
+		return errors.New("unsupported technical lost-ACK recovery agent flag")
+	}
+	if recoveryEnabled == "1" && (technical != "1" || (installEnabled != "1" && retireEnabled != "1")) {
+		return errors.New("lost-ACK recovery requires explicit managed INSTALL or RETIRE mode")
+	}
 	var technicalPublicKey ed25519.PublicKey
 	if technical == "1" {
 		if os.Getenv("ELX_AGENT_MANAGED") != "1" ||
@@ -218,6 +225,30 @@ func serveAgent(ctx context.Context, args []string) error {
 					fmt.Fprintln(os.Stderr, "ElX technical RETIRE requires reconciliation:", retireErr)
 				default:
 					return fmt.Errorf("signed technical RETIRE failed closed: %w", retireErr)
+				}
+			}
+		}
+		// Reconciliation is read-only: the core will sign only an already
+		// completed, durable technical operation. No expired Control job
+		// is replayed or transformed into a fresh authorization.
+		if recoveryEnabled == "1" {
+			bindings, loadErr := loadBindings()
+			if loadErr != nil {
+				return fmt.Errorf("technical recovery manifest unavailable: %w", loadErr)
+			}
+			recoveryCtx, done := context.WithTimeout(ctx, 30*time.Second)
+			recoveryErr := policytransport.ApplyTechnicalRecovery(recoveryCtx, conn, core, bindings)
+			done()
+			if ctx.Err() != nil { return nil }
+			if recoveryErr != nil {
+				switch status.Code(recoveryErr) {
+				case codes.NotFound:
+					// No expired Control technical operation is pending.
+				case codes.Unavailable, codes.DeadlineExceeded, codes.FailedPrecondition:
+					// No proof means no APPLIED and no owner/device release.
+					fmt.Fprintln(os.Stderr, "ElX technical recovery remains unresolved:", recoveryErr)
+				default:
+					return fmt.Errorf("technical recovery failed closed: %w", recoveryErr)
 				}
 			}
 		}
