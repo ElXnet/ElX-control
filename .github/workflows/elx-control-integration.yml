@@ -148,6 +148,9 @@ jobs:
           go version
           git -C ElX-control rev-parse HEAD
           git -C ElXray rev-parse HEAD
+      - name: Check local and managed E2E shell syntax
+        working-directory: ElX-control
+        run: bash -n scripts/elx-test-local.sh scripts/elx-policy-smoke.sh
       - name: Run Control race, PostgreSQL, policy, signed-fence and VLESS suite
         working-directory: ElX-control
         env:
