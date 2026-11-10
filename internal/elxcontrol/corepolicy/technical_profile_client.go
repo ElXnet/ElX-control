@@ -17,22 +17,22 @@ const technicalProfileService = "/elx.core.v1.TechnicalProfile/"
 // preparation. The remote Control must NEVER turn this into an APPLIED
 // installation receipt or a device/owner authorization.
 type TechnicalPrepared struct {
-	ProfileID           string
-	OperationID         string
-	NodeID              string
-	ResourceID          string
-	ExecutorID          string
-	SubscriptionID      string
-	Email               string
-	InboundTag          string
-	ProfileGeneration   uint64
-	AuthorityGeneration uint64
-	PolicyRevision      uint64
-	TranscriptSHA256    string
-	InstallOperationID  string
+	ProfileID               string
+	OperationID             string
+	NodeID                  string
+	ResourceID              string
+	ExecutorID              string
+	SubscriptionID          string
+	Email                   string
+	InboundTag              string
+	ProfileGeneration       uint64
+	AuthorityGeneration     uint64
+	PolicyRevision          uint64
+	TranscriptSHA256        string
+	InstallOperationID      string
 	InstallTranscriptSHA256 string
-	Flow                string
-	Phase               string
+	Flow                    string
+	Phase                   string
 }
 
 // PrepareTechnicalProfile forwards the exact Control signed JSON unchanged.
