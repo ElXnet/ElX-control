@@ -95,6 +95,34 @@ func TestLostACKRecoveryOnlyRelaysPinnedCoreSignatureAndNeverReplaysMutation(t *
 		core.reads!=1 {
 		t.Fatalf("live signed proof recovery did not confirm exact prior outcome: %v %+v %+v",err,conn,core)
 	}
+	// The retire path has a distinct signed transcript and must not be
+	// mistaken for a completed INSTALL or an owner-slot release.
+	retireJob:=job
+	retireJob.Action="retire"
+	retired:=corepolicy.RetireReceipt{
+		Version:1,OperationID:operation,ProfileID:profile,
+		NodeID:node,ResourceID:resource,ExecutorID:executor,
+		StoreID:uuid.New(),CoreIncarnation:uuid.New(),
+		AuthorityGeneration:9,PolicyRevision:1,RetireGeneration:2,
+		TranscriptSHA256:strings.Repeat("b",64),
+	}
+	retired.Signature=ed25519.Sign(key,retired.Transcript())
+	retireConn:=&technicalRecoveryFakeConn{response:encode([]TechnicalRecoveryJob{retireJob})}
+	retireCore:=&technicalRecoveryFakeCore{retired:retired}
+	if err:=ApplyTechnicalRecovery(context.Background(),retireConn,retireCore,[]Binding{binding});
+		err!=nil || retireConn.confirmations!=1 ||
+		!strings.HasSuffix(retireConn.confirmedMethod,"/TechnicalRetireConfirm") ||
+		retireCore.reads!=1 {
+		t.Fatalf("read-only RETIRE recovery did not deliver pinned proof: %v %+v",err,retireConn)
+	}
+	retired.Signature=append([]byte(nil),retired.Signature...)
+	retired.Signature[0]^=1
+	tamperedConn:=&technicalRecoveryFakeConn{response:encode([]TechnicalRecoveryJob{retireJob})}
+	if err:=ApplyTechnicalRecovery(context.Background(),tamperedConn,
+		&technicalRecoveryFakeCore{retired:retired},[]Binding{binding});
+		status.Code(err)!=codes.PermissionDenied || tamperedConn.confirmations!=0 {
+		t.Fatalf("forged retired recovery was accepted: %v",err)
+	}
 	forged:=install
 	forged.Signature=append([]byte(nil),install.Signature...)
 	forged.Signature[0]^=1
