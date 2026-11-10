@@ -2,6 +2,7 @@ package journal
 
 import (
 	"crypto/ed25519"
+	"database/sql"
 	"errors"
 	"sync"
 	"testing"
@@ -66,6 +67,19 @@ func TestStage4TechnicalProfileReservationIsDurableButNotAdmitted(t *testing.T) 
 	if err != nil || phase != "prepared" || operationState != "INTENT" {
 		t.Fatalf("prepared user was unexpectedly installed or admitted: phase=%s op=%s err=%v",
 			phase, operationState, err)
+	}
+	issued, err := NextTechnicalProfile(ctx, db, target, executor, "lab")
+	if err != nil || issued.OperationID != grant.OperationID ||
+		issued.NotAfter != grant.NotAfter || issued.NotBefore != grant.NotBefore ||
+		issued.ProfileID != grant.ProfileID || issued.ExecutorID != grant.ExecutorID ||
+		string(issued.Transcript()) != string(grant.Transcript()) {
+		t.Fatalf("Control read-only job was not byte-for-byte signed scope: %+v %v", issued, err)
+	}
+	if _, err := NextTechnicalProfile(ctx, db, target, uuid.NewString(), "lab"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("foreign executor could fetch pending signed profile: %v", err)
+	}
+	if _, err := NextTechnicalProfile(ctx, db, target, executor, "other"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("foreign subscription could fetch pending profile: %v", err)
 	}
 	stolen := req
 	stolen.Grant.OperationID = grant.OperationID
