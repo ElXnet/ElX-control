@@ -156,7 +156,7 @@ func QueueTechnicalProfile(ctx context.Context, db *sql.DB,
 		return out, err
 	}
 	if transitioning {
-		return out, ErrUncertain
+		return out, ErrPending
 	}
 
 	_, err = tx.ExecContext(ctx, `INSERT INTO elx_technical_profiles
