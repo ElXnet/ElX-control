@@ -32,6 +32,9 @@ type TechnicalPrepared struct {
 	InstallOperationID      string
 	InstallTranscriptSHA256 string
 	Flow                    string
+	RetireOperationID       string
+	RetireTranscriptSHA256  string
+	RetireGeneration        uint64
 	Phase                   string
 }
 
@@ -122,6 +125,62 @@ func (c *Client) ReadTechnicalInstalledProof(ctx context.Context, job []byte) (I
 	return proof, nil
 }
 
+// RetireTechnicalProfile invokes only the protected, separately signed
+// non-admitting VLESS Retire RPC, never the upstream mutable HandlerService.
+func (c *Client) RetireTechnicalProfile(ctx context.Context, job []byte) (TechnicalPrepared, error) {
+	if c == nil || c.conn == nil || len(job) == 0 || len(job) > 4096 {
+		return TechnicalPrepared{}, errors.New("missing or oversized signed technical RETIRE job")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var response wrapperspb.BytesValue
+	if err := c.conn.Invoke(ctx, technicalProfileService+"Retire",
+		wrapperspb.Bytes(job), &response, grpc.MaxCallRecvMsgSize(4096)); err != nil {
+		return TechnicalPrepared{}, err
+	}
+	if len(response.Value) == 0 || len(response.Value) > 4096 {
+		return TechnicalPrepared{}, errors.New("invalid retired technical profile readback")
+	}
+	var retired TechnicalPrepared
+	if err := json.Unmarshal(response.Value, &retired); err != nil {
+		return TechnicalPrepared{}, err
+	}
+	if retired.Phase != "RETIRED" || retired.RetireOperationID == "" ||
+		retired.RetireGeneration < 2 || retired.ProfileID == "" {
+		return TechnicalPrepared{}, errors.New("core did not durably retire the effective VLESS UUID")
+	}
+	return retired, nil
+}
+
+// ReadTechnicalRetiredProof requests core-signed evidence for an exact
+// Control-signed RETIRE and its observed absence in the real VLESS validator.
+func (c *Client) ReadTechnicalRetiredProof(ctx context.Context, job []byte) (RetireReceipt, error) {
+	if c == nil || c.conn == nil || len(job) == 0 || len(job) > 4096 {
+		return RetireReceipt{}, errors.New("missing or oversized signed RETIRE job")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var response wrapperspb.BytesValue
+	if err := c.conn.Invoke(ctx, technicalProfileService+"RetiredProof",
+		wrapperspb.Bytes(job), &response, grpc.MaxCallRecvMsgSize(4096)); err != nil {
+		return RetireReceipt{}, err
+	}
+	if len(response.Value) == 0 || len(response.Value) > 4096 {
+		return RetireReceipt{}, errors.New("invalid signed retired proof size")
+	}
+	var proof RetireReceipt
+	if err := json.Unmarshal(response.Value, &proof); err != nil {
+		return RetireReceipt{}, err
+	}
+	if proof.Version != 1 || proof.OperationID == uuid.Nil ||
+		proof.ProfileID == uuid.Nil || proof.StoreID == uuid.Nil ||
+		proof.CoreIncarnation == uuid.Nil || proof.RetireGeneration < 2 ||
+		len(proof.Signature) != 64 {
+		return RetireReceipt{}, errors.New("invalid core-signed retired evidence")
+	}
+	return proof, nil
+}
+
 // ReadbackTechnicalProfile is read-only and must not be confused with signed
 // proof of live VLESS AddUser application.
 func (c *Client) ReadbackTechnicalProfile(ctx context.Context, profileID string) (TechnicalPrepared, error) {
@@ -144,7 +203,7 @@ func (c *Client) ReadbackTechnicalProfile(ctx context.Context, profileID string)
 		return TechnicalPrepared{}, err
 	}
 	if prepared.ProfileID != profileID ||
-		(prepared.Phase != "PREPARED" && prepared.Phase != "INSTALLED") {
+		(prepared.Phase != "PREPARED" && prepared.Phase != "INSTALLED" && prepared.Phase != "RETIRED") {
 		return TechnicalPrepared{}, errors.New("inconsistent non-authorizing technical profile readback")
 	}
 	return prepared, nil
