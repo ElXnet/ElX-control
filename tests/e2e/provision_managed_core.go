@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && elx_e2e_provision
 
 // Test-only setup of a disposable ElXray Stage 3 managed journal.
 //
