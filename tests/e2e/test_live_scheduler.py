@@ -95,6 +95,9 @@ def run():
         traffic = None
         try:
             lab = LeasedLab(Path(temp))
+            # Diagnostic output remains in disposable local core logs only;
+            # production gRPC errors stay generic and never expose store data.
+            lab.base_env["ELXRAY_E2E_LEASE_DIAGNOSTICS"] = "1"
             # The shared echo fixture closes idle sockets after 6 seconds.
             # This test holds a real, initially idle VPN connection across
             # telemetry collection and asynchronous rate operations, so the
