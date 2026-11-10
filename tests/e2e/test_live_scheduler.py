@@ -114,8 +114,8 @@ def run():
             lab.seed()
             boots = [lab.usage(i)["Incarnation"] for i in range(2)]
             fixture(lab, "seed", lab.entitlement, lab.resource_id,
-                    lab.node_ids[0], boots[0], lab.keys[0],
-                    lab.node_ids[1], boots[1], lab.keys[1])
+                    lab.node_ids[0], boots[0], lab.keys[0], lab.executor_ids[0],
+                    lab.node_ids[1], boots[1], lab.keys[1], lab.executor_ids[1])
             for i in range(2):
                 lab.start_agent(i)
             for i in range(2):
