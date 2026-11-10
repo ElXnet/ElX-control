@@ -248,6 +248,7 @@ type service interface {
 	next(context.Context, *emptypb.Empty) (*wrapperspb.BytesValue, error)
 	nextTechnicalProfile(context.Context, *emptypb.Empty) (*wrapperspb.BytesValue, error)
 	nextTechnicalInstall(context.Context, *emptypb.Empty) (*wrapperspb.BytesValue, error)
+	confirmTechnicalInstall(context.Context, *wrapperspb.BytesValue) (*emptypb.Empty, error)
 	confirm(context.Context, *wrapperspb.BytesValue) (*emptypb.Empty, error)
 	lease(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
 	witness(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
@@ -292,6 +293,7 @@ func register(g *grpc.Server, db *sql.DB, source func()([]Binding,error), bindin
 			{MethodName: "Next", Handler: handler("Next", (*server).next)},
 			{MethodName: "TechnicalProfileNext", Handler: handler("TechnicalProfileNext", (*server).nextTechnicalProfile)},
 			{MethodName: "TechnicalInstallNext", Handler: handler("TechnicalInstallNext", (*server).nextTechnicalInstall)},
+			{MethodName: "TechnicalInstallConfirm", Handler: handler("TechnicalInstallConfirm", (*server).confirmTechnicalInstall)},
 			{MethodName: "Confirm", Handler: handler("Confirm", (*server).confirm)},
 			{MethodName: "Lease", Handler: handler("Lease", (*server).lease)},
 			{MethodName: "StoreWitness", Handler: handler("StoreWitness", (*server).witness)},
