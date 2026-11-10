@@ -36,6 +36,8 @@ CREATE TABLE elx_technical_profile_operations (
     profile_generation bigint NOT NULL CHECK (profile_generation > 0),
     authority_generation bigint NOT NULL CHECK (authority_generation > 0),
     policy_revision bigint NOT NULL CHECK (policy_revision > 0),
+    not_before bigint NOT NULL CHECK (not_before > 0),
+    not_after bigint NOT NULL CHECK (not_after > not_before AND not_after-not_before <= 60),
     state text NOT NULL CHECK (state IN ('INTENT','APPLIED')),
     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     applied_at timestamptz,
