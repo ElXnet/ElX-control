@@ -358,13 +358,17 @@ func ApplyNext(ctx context.Context, conn grpc.ClientConnInterface, core Applier)
 			ExecutorID: job.ExecutorID, AuthorityGeneration: job.AuthorityGeneration,
 		}
 		proof, err = managed.ApplyManagedWithProof(ctx, job.Policy, job.Challenge, job.PublicKey, op)
+		// Only the dedicated core lease-ceiling status qualifies for retry.
+		// The core's generic ErrUnauthorized also covers forged operation
+		// scope, executor, generation and hash. Treating that as transient
+		// previously hid permanent authorization errors and stalled lower.
 		// A freshly reserved scheduler increase may be delivered before the
 		// agent's 3-second lease renewal tick. The core MUST reject that
 		// increase against the old signed ceiling. Request a new *Control-
 		// signed* lease for the exact trusted job and retry the SAME operation
 		// once. No unsigned override, speculative ACK or altered rate is used.
 		if err != nil && status.Code(err) == codes.PermissionDenied &&
-			strings.Contains(status.Convert(err).Message(), "managed subscription update exceeds signed Control authority") &&
+			strings.Contains(status.Convert(err).Message(), "elx-managed-lease-ceiling-pending-v1") &&
 			job.AuthorityGeneration <= math.MaxInt64 {
 			leaseCore, canRenew := core.(LeaseCore)
 			binding := Binding{
@@ -402,7 +406,7 @@ func ApplyNext(ctx context.Context, conn grpc.ClientConnInterface, core Applier)
 			// bypass the limiter and never grounds to kill the whole node
 			// agent. Retry next poll with fresh Control authority.
 			if err != nil && status.Code(err) == codes.PermissionDenied &&
-				strings.Contains(err.Error(), "managed subscription update exceeds signed Control authority") {
+				strings.Contains(status.Convert(err).Message(), "elx-managed-lease-ceiling-pending-v1") {
 				return status.Error(codes.Unavailable,
 					"managed rate change remains pending until a fresh signed Control ceiling is accepted")
 			}
