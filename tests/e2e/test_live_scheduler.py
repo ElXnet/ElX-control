@@ -13,11 +13,54 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 
 from test_multinode import command, read_exact, require, wait_for
 from test_lease_partition import LeasedLab, eventually_live
 
 BLOCK = b"v" * 4096
+
+class JournaledSchedulerLab(LeasedLab):
+    """Two real managed cores with the Stage-3 durable operation journal.
+
+    Earlier CI only enabled ELXRAY_MODE=managed, but omitted the core
+    journal. Its agent then sent a managed operation to a node that could
+    *never* accept the operation-bearing RPC. Preserve the production
+    requirement instead of downgrading the core or suppressing the failure.
+    """
+
+    def __init__(self, folder):
+        super().__init__(folder)
+        self.store_ids = [str(uuid.uuid4()) for _ in range(2)]
+        self.journals = [folder / f"node-{i}-operations.json" for i in range(2)]
+        core_repo = Path(__file__).resolve().parents[2] / "ElXray"
+        require((core_repo / "go.mod").is_file(),
+                "matching Stage-4 ElXray module is required for journal provisioning")
+        runner = subprocess.run([
+            "go", "run", str(Path(__file__).with_name("provision_managed_core.go")),
+            self.resource_id,
+            str(folder / "node-0-state.json"), str(self.journals[0]), self.store_ids[0],
+            str(folder / "node-1-state.json"), str(self.journals[1]), self.store_ids[1],
+        ], cwd=core_repo, env={
+            **os.environ, "ELX_STAGE4_E2E_DISPOSABLE": "1",
+        }, text=True, capture_output=True, check=False, timeout=120)
+        require(runner.returncode == 0,
+                f"managed core journal provisioning failed: {runner.stderr[-1800:]}")
+
+    def env(self, *, node=None, cert=None):
+        env = super().env(node=node, cert=cert)
+        if node is not None and hasattr(self, "journals"):
+            env["ELXRAY_OP_JOURNAL"] = str(self.journals[node])
+            env["ELX_AGENT_STORE_WITNESS_REQUIRED"] = "1"
+        return env
+
+    def seed(self):
+        super().seed()
+        for i in range(2):
+            # An administrative baseline pinned independently in PostgreSQL
+            # is mandatory before the first short-lived lease with a journal.
+            fixture(self, "witness", self.node_ids[i], self.resource_id,
+                    self.executor_ids[i], self.store_ids[i])
 
 
 def fixture(lab, *args):
@@ -94,7 +137,7 @@ def run():
         failures = []
         traffic = None
         try:
-            lab = LeasedLab(Path(temp))
+            lab = JournaledSchedulerLab(Path(temp))
             # Diagnostic output remains in disposable local core logs only;
             # production gRPC errors stay generic and never expose store data.
             lab.base_env["ELXRAY_E2E_LEASE_DIAGNOSTICS"] = "1"
