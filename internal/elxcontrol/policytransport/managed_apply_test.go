@@ -102,7 +102,8 @@ func TestManagedCeilingRaceNeverAcknowledgesOrCrashesAgent(t *testing.T) {
 	encoded,err:=json.Marshal(job)
 	if err!=nil {t.Fatal(err)}
 	for _,tc:=range []struct{message string;expected codes.Code}{
-		{"managed subscription update exceeds signed Control authority",codes.Unavailable},
+		{"elx-managed-lease-ceiling-pending-v1",codes.Unavailable},
+		{"managed subscription update exceeds signed Control authority",codes.PermissionDenied},
 		{"untrusted managed signature",codes.PermissionDenied},
 	}{
 		conn:=&managedFakeConn{job:encoded}
