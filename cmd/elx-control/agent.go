@@ -42,6 +42,13 @@ func serveAgent(ctx context.Context, args []string) error {
 	if installEnabled == "1" && technical != "1" {
 		return errors.New("signed INSTALL requires independently pinned PREPARE mode")
 	}
+	retireEnabled := os.Getenv("ELX_AGENT_TECHNICAL_RETIRE")
+	if retireEnabled != "" && retireEnabled != "1" {
+		return errors.New("unsupported signed technical RETIRE agent flag")
+	}
+	if retireEnabled == "1" && technical != "1" {
+		return errors.New("signed RETIRE requires pinned managed technical agent authority")
+	}
 	var technicalPublicKey ed25519.PublicKey
 	if technical == "1" {
 		if os.Getenv("ELX_AGENT_MANAGED") != "1" ||
@@ -186,6 +193,31 @@ func serveAgent(ctx context.Context, args []string) error {
 					fmt.Fprintln(os.Stderr, "ElX technical INSTALL requires reconciliation:", err)
 				default:
 					return fmt.Errorf("signed technical INSTALL failed closed: %w", err)
+				}
+			}
+		}
+		// Revocation is independently signed and the VLESS UUID is
+		// durably tombstoned before live deletion. A failed/lost receipt
+		// never frees a session slot or changes a paid rate grant.
+		if retireEnabled == "1" {
+			bindings, loadErr := loadBindings()
+			if loadErr != nil {
+				return fmt.Errorf("technical RETIRE manifest unavailable: %w", loadErr)
+			}
+			retireCtx, done := context.WithTimeout(ctx, 15*time.Second)
+			retireErr := policytransport.ApplyTechnicalRetire(
+				retireCtx, conn, core, bindings, technicalPublicKey)
+			done()
+			if ctx.Err() != nil { return nil }
+			if retireErr != nil {
+				switch status.Code(retireErr) {
+				case codes.NotFound:
+					// No approved revocation on this exact executor.
+				case codes.Unavailable, codes.DeadlineExceeded, codes.FailedPrecondition:
+					// Unknown result remains pending. Never reissue UUID.
+					fmt.Fprintln(os.Stderr, "ElX technical RETIRE requires reconciliation:", retireErr)
+				default:
+					return fmt.Errorf("signed technical RETIRE failed closed: %w", retireErr)
 				}
 			}
 		}
