@@ -324,4 +324,12 @@ func TestStage4TechnicalProfileReservationIsDurableButNotAdmitted(t *testing.T) 
 		t.Fatalf("RETIRE incorrectly released bandwidth or owner slots: up=%d down=%d slots=%d err=%v",
 			preservedUp,preservedDown,owners,err)
 	}
+	// A technical update/bind rotation requires a fresh UUID and explicit
+	// PREPARE, never an in-place change to the permanently retired old key.
+	rotation := req
+	rotation.Grant.OperationID = uuid.New()
+	rotation.Grant.ProfileID = uuid.New()
+	if rotated, err := QueueTechnicalProfile(ctx, db, rotation); err != nil || rotated.State != "INTENT" {
+		t.Fatalf("new signed profile replacing retired email was denied: %+v %v", rotated, err)
+	}
 }
