@@ -6,7 +6,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"time"
 
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/corepolicy"
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/journal"
@@ -26,10 +25,13 @@ func enqueueTechnicalProfile(ctx context.Context, db *sql.DB, args []string) err
 	email := fs.String("email", "", "unique VLESS technical email")
 	inboundTag := fs.String("inbound", "", "existing VLESS inbound tag")
 	revision := fs.Uint64("core-revision", 0, "known committed ElXray policy revision")
+	notBefore := fs.Int64("not-before", 0, "stable UTC Unix start for retry-safe signed job")
+	notAfter := fs.Int64("not-after", 0, "stable UTC Unix expiry <=60 seconds after start")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if fs.NArg() != 0 || *revision == 0 {
+	if fs.NArg() != 0 || *revision == 0 || *notBefore <= 0 ||
+		*notAfter <= *notBefore || *notAfter-*notBefore > 60 {
 		return errors.New("explicit committed core revision required for technical preparation")
 	}
 	profileID, e1 := uuid.Parse(*profile)
@@ -64,14 +66,14 @@ func enqueueTechnicalProfile(ctx context.Context, db *sql.DB, args []string) err
 	if selected == nil {
 		return errors.New("node/resource not present in protected Control manifest")
 	}
-	now := time.Now().UTC().Unix()
+	
 	grant := corepolicy.ProfileGrantIntent{
 		Version: 1, Action: "prepare", OperationID: opID,
 		NodeID: uuid.MustParse(selected.node), ResourceID: uuid.MustParse(selected.resource),
 		ExecutorID: uuid.MustParse(selected.executor), ProfileID: profileID,
 		SubscriptionID: selected.subscription, Email: *email, InboundTag: *inboundTag,
 		ProfileGeneration: 1, AuthorityGeneration: uint64(selected.epoch),
-		PolicyRevision: *revision, NotBefore: now, NotAfter: now + 45,
+		PolicyRevision: *revision, NotBefore: *notBefore, NotAfter: *notAfter,
 	}
 	receipt, err := journal.QueueTechnicalProfile(ctx, db, journal.ProfileReservation{
 		Grant: grant, EntitlementID: entID.String(),
