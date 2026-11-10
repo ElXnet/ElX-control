@@ -178,3 +178,77 @@ func QueueTechnicalProfile(ctx context.Context, db *sql.DB,
 	out.State = "INTENT"
 	return out, nil
 }
+
+// NextTechnicalProfile is a read-only, bounded, authoritative operation
+// projection for one exact mTLS-authenticated node/resource/executor. This
+// function NEVER signs data and never changes the operation to APPLIED.
+//
+// A revoked entitlement, stale core revision, pending rate move, switched
+// executor/store generation, expired grant or inconsistent signed hash is
+// omitted rather than converted into an unsafe job.
+func NextTechnicalProfile(ctx context.Context, db *sql.DB,
+	target Target, executorID, subscriptionID string) (corepolicy.ProfileGrantIntent, error) {
+	if db == nil || !canonical(target.NodeID) || !canonical(target.ResourceID) ||
+		!canonical(executorID) || !technicalLabel.MatchString(subscriptionID) {
+		return corepolicy.ProfileGrantIntent{}, ErrInvalid
+	}
+	now := time.Now().UTC()
+	var g corepolicy.ProfileGrantIntent
+	var profile, operation string
+	var digest []byte
+	var generation, epoch, revision, notBefore, notAfter int64
+	var email, inboundTag string
+	err := db.QueryRowContext(ctx, `SELECT
+	    p.operation_id::text,p.profile_id::text,p.email,p.inbound_tag,
+	    p.profile_generation,p.authority_generation,p.policy_revision,
+	    o.not_before,o.not_after,o.payload_sha256
+	    FROM elx_technical_profiles p
+	    JOIN elx_technical_profile_operations o ON o.operation_id=p.operation_id
+	       AND o.profile_id=p.profile_id
+	    JOIN elx_rate_grants rg ON rg.node_id=p.node_id AND rg.resource_id=p.resource_id
+	    JOIN elx_operation_targets t ON t.node_id=p.node_id AND t.resource_id=p.resource_id
+	    JOIN elx_core_store_witnesses w ON w.node_id=p.node_id AND w.resource_id=p.resource_id
+	    JOIN elx_entitlements e ON e.id=p.entitlement_id
+	    WHERE p.node_id=$1 AND p.resource_id=$2 AND p.executor_id=$3
+	      AND p.subscription_id=$4 AND p.state='prepared'
+	      AND o.state='INTENT' AND o.action='prepare'
+	      AND o.profile_generation=p.profile_generation
+	      AND o.authority_generation=p.authority_generation
+	      AND o.policy_revision=p.policy_revision
+	      AND rg.entitlement_id=p.entitlement_id
+	      AND rg.epoch=p.authority_generation
+	      AND rg.epoch=w.authority_generation
+	      AND w.executor_id=p.executor_id AND w.core_revision=p.policy_revision
+	      AND t.revision+1=p.policy_revision
+	      AND rg.committed_up>0 AND rg.committed_down>0
+	      AND e.enabled=true AND e.valid_until>clock_timestamp()
+	      AND o.not_before<=EXTRACT(EPOCH FROM clock_timestamp())+5
+	      AND o.not_after>EXTRACT(EPOCH FROM clock_timestamp())
+	      AND NOT EXISTS(SELECT 1 FROM elx_operations rate
+	         WHERE rate.node_id=p.node_id AND rate.resource_id=p.resource_id AND rate.applied_at IS NULL)
+	    ORDER BY p.created_at,p.profile_id LIMIT 1`,
+		target.NodeID, target.ResourceID, executorID, subscriptionID).
+		Scan(&operation,&profile,&email,&inboundTag,
+			&generation,&epoch,&revision,&notBefore,&notAfter,&digest)
+	if err != nil {
+		return corepolicy.ProfileGrantIntent{}, err
+	}
+	g = corepolicy.ProfileGrantIntent{
+		Version: 1, Action: "prepare",
+		OperationID: uuid.MustParse(operation),
+		NodeID: uuid.MustParse(target.NodeID), ResourceID: uuid.MustParse(target.ResourceID),
+		ExecutorID: uuid.MustParse(executorID), ProfileID: uuid.MustParse(profile),
+		SubscriptionID: subscriptionID, Email: email, InboundTag: inboundTag,
+		ProfileGeneration: uint64(generation), AuthorityGeneration: uint64(epoch),
+		PolicyRevision: uint64(revision), NotBefore: notBefore, NotAfter: notAfter,
+	}
+	computed := sha256.Sum256(g.Transcript())
+	if generation != 1 || epoch <= 0 || revision <= 0 ||
+		!validTechnicalReservation(ProfileReservation{Grant: g,
+			EntitlementID: "00000000-0000-4000-8000-000000000001",
+			PinnedSubscription: subscriptionID}, now) ||
+		!bytes.Equal(digest, computed[:]) {
+		return corepolicy.ProfileGrantIntent{}, ErrProfileAuthority
+	}
+	return g, nil
+}
