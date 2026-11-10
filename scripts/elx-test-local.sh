@@ -92,6 +92,9 @@ export TMPDIR="$work"
     # All three suites use LeasedLab, which must start two managed cores
     # and fork a separate nobody-UID Unix-socket agent. Running only the
     # first suite as root silently breaks scheduler/failover regression.
+    # Only the disposable local PostgreSQL lab may report underlying
+    # signed-usage SQL errors. No production diagnostics are enabled.
+    export ELX_E2E_USAGE_DIAGNOSTICS=1
     managed_suites=(
         tests/e2e/test_lease_partition.py
         tests/e2e/test_live_scheduler.py
@@ -115,6 +118,7 @@ export TMPDIR="$work"
                     ELX_CONTROL_BIN="$ELX_CONTROL_BIN" \
                     ELX_CONTROL_POSTGRES_DSN="$ELX_CONTROL_POSTGRES_DSN" \
                     ELX_TEST_POSTGRES_DSN="$ELX_TEST_POSTGRES_DSN" \
+                    ELX_E2E_USAGE_DIAGNOSTICS=1 \
                     TMPDIR="$TMPDIR" \
                     python3 "$suite"
             done
