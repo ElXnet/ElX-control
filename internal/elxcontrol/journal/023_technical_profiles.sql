@@ -25,13 +25,6 @@ CREATE TABLE elx_technical_profiles (
 CREATE UNIQUE INDEX elx_live_profile_user_per_inbound
     ON elx_technical_profiles(node_id,executor_id,inbound_tag,email)
     WHERE state <> 'retired';
--- VLESS normalizes bytes 6 and 7 of the UUID during authentication.
--- Keep its *effective* key unique per core executor for all generations,
--- including retired profiles, to prohibit alias takeover after restarts.
--- uuid_send returns UUID bytes in wire order; set_byte uses zero-based offsets.
-CREATE UNIQUE INDEX elx_vless_effective_id_per_executor
-    ON elx_technical_profiles(node_id,executor_id,
-       (set_byte(set_byte(uuid_send(profile_id),6,0),7,0)));
 CREATE INDEX elx_profiles_by_entitlement
     ON elx_technical_profiles(entitlement_id,state);
 
