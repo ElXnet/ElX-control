@@ -68,6 +68,24 @@ func seed(ctx context.Context, db *sql.DB, args []string) error {
 	return nil
 }
 
+// provisionWitness binds an existing disposable PostgreSQL core snapshot to
+// an independently provisioned ElXray journal StoreID. It never trusts a
+// node-supplied receipt as evidence of that initial authoritative baseline.
+func provisionWitness(ctx context.Context, db *sql.DB, args []string) error {
+	if len(args) != 4 {
+		return errors.New("witness: node resource executor core-store UUID")
+	}
+	for _, id := range args {
+		if !canonical(id) {
+			return errors.New("witness requires four canonical UUIDs")
+		}
+	}
+	return journal.ProvisionCoreStoreWitness(ctx, db, journal.CoreStoreWitness{
+		NodeID: args[0], ResourceID: args[1], ExecutorID: args[2],
+		StoreID: args[3], AuthorityGeneration: 1, CoreRevision: 1,
+	})
+}
+
 func inspect(ctx context.Context, db *sql.DB, entitlement string) error {
 	if !canonical(entitlement) {
 		return errors.New("invalid entitlement UUID")
@@ -173,8 +191,8 @@ func readFUPState(ctx context.Context,db *sql.DB,entitlement string) error {
 }
 
 func main() {
-	if len(os.Args) < 3 || (os.Args[1] != "seed" && os.Args[1] != "inspect" && os.Args[1] != "arm-fup" && os.Args[1] != "fup-state") {
-		fmt.Fprintln(os.Stderr, "usage: rate-scheduler-fixture seed <10 args> | inspect|arm-fup|fup-state <entitlement>")
+	if len(os.Args) < 3 || (os.Args[1] != "seed" && os.Args[1] != "witness" && os.Args[1] != "inspect" && os.Args[1] != "arm-fup" && os.Args[1] != "fup-state") {
+		fmt.Fprintln(os.Stderr, "usage: rate-scheduler-fixture seed <10 args> | witness <node resource executor store> | inspect|arm-fup|fup-state <entitlement>")
 		os.Exit(2)
 	}
 	dsn := os.Getenv("ELX_CONTROL_POSTGRES_DSN")
@@ -195,6 +213,11 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	switch os.Args[1] {
+	case "witness":
+		err = provisionWitness(ctx, db, os.Args[2:])
+		if err == nil {
+			fmt.Println("PASS: separately pinned disposable core store HWM")
+		}
 	case "seed":
 		err = seed(ctx, db, os.Args[2:])
 		if err == nil {
