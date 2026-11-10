@@ -136,6 +136,9 @@ func QueueTechnicalProfile(ctx context.Context, db *sql.DB,
 	var existing bool
 	err = tx.QueryRowContext(ctx, `SELECT EXISTS(
 	    SELECT 1 FROM elx_technical_profiles WHERE profile_id=$1
+	    OR (node_id=$2 AND executor_id=$3
+	        AND set_byte(set_byte(uuid_send(profile_id),6,0),7,0)
+	          = set_byte(set_byte(uuid_send($1::uuid),6,0),7,0))
 	    OR (node_id=$2 AND executor_id=$3 AND inbound_tag=$4
 	    AND email=$5 AND state<>'retired'))`,
 		g.ProfileID, g.NodeID, g.ExecutorID, g.InboundTag, g.Email).
