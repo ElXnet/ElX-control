@@ -141,7 +141,13 @@ func serveAgent(ctx context.Context, args []string) error {
 			case codes.Unavailable, codes.DeadlineExceeded:
 				// Reconnect/retry on the next poll. Unknown outcome is safe:
 				// Control does not dequeue without a signed applied receipt.
-				fmt.Fprintln(os.Stderr, "ElX policy channel unavailable; will retry")
+				if os.Getenv("ELX_AGENT_E2E_DIAGNOSTICS") == "1" {
+					// Disposable CI harness only. Never print signed payloads,
+					// credentials or detailed Control errors by default.
+					fmt.Fprintln(os.Stderr, "ElX E2E pending policy operation:", status.Code(err), err)
+				} else {
+					fmt.Fprintln(os.Stderr, "ElX policy channel unavailable; will retry")
+				}
 			default:
 				// Malformed, unauthorized or mismatched policy evidence must
 				// stop the worker instead of silently re-trying indefinitely.
