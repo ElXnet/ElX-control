@@ -108,11 +108,38 @@ func (s *server) witness(ctx context.Context,in *wrapperspb.BytesValue)(*wrapper
   !validID(state.StoreID){
   return nil,status.Error(codes.FailedPrecondition,"Control witness epoch/store binding superseded")
  }
- // A witness cannot advertise grants while an unresolved command exists:
- // first require authenticated APPLIED receipt and atomic DB commit.
- if _,err:=journal.Pending(ctx,s.db,binding.Target);err==nil{
-  return nil,status.Error(codes.FailedPrecondition,"Control policy operation still unconfirmed")
- }else if !errors.Is(err,sql.ErrNoRows){
+ // The independent store witness attests the PREVIOUS committed core
+ // snapshot, never the pending rate move itself. Allow precisely one
+ // pending, durably budget-reserved next-revision rate move. Otherwise a
+ // scheduler raise deadlocks: the new signed ceiling is reserved, but the
+ // core cannot accept it without a fresh witness matching the still-old
+ // live revision. If that rate was already applied without an ACK, the core
+ // sees the old witness revision and independently rejects it (fail closed).
+ // Any unrelated pending mutation remains blocked.
+ if pending,pendingErr:=journal.Pending(ctx,s.db,binding.Target);pendingErr==nil {
+  var reservedNextRate bool
+  err=s.db.QueryRowContext(ctx,`SELECT EXISTS (
+    SELECT 1 FROM elx_rate_moves m
+    JOIN elx_operations o ON o.node_id=m.node_id
+      AND o.resource_id=m.resource_id AND o.operation_id=m.operation_id
+    JOIN elx_core_store_witnesses w ON w.node_id=o.node_id
+      AND w.resource_id=o.resource_id
+    JOIN elx_rate_grants g ON g.node_id=o.node_id
+      AND g.resource_id=o.resource_id
+    WHERE o.node_id=$1 AND o.resource_id=$2 AND o.operation_id=$3
+      AND m.finalized=false AND o.applied_at IS NULL
+      AND o.revision-1=w.core_revision
+      AND w.authority_generation=g.epoch AND g.epoch=$4
+      AND g.entitlement_id IS NOT NULL
+  )`,binding.Target.NodeID,binding.Target.ResourceID,pending.ID,binding.Epoch).
+   Scan(&reservedNextRate)
+  if err!=nil {
+   return nil,status.Error(codes.Unavailable,"pending rate witness eligibility unavailable")
+  }
+  if !reservedNextRate {
+   return nil,status.Error(codes.FailedPrecondition,"unconfirmed non-rate operation or divergent witness")
+  }
+ }else if !errors.Is(pendingErr,sql.ErrNoRows){
   return nil,status.Error(codes.Unavailable,"pending state unavailable")
  }
  nonce,err:=uuid.Parse(req.Nonce)
