@@ -93,6 +93,23 @@ func TestStage4TechnicalProfileReservationIsDurableButNotAdmitted(t *testing.T) 
 	if _, err := QueueTechnicalProfile(ctx, db, stolen); !errors.Is(err, ErrProfileConflict) {
 		t.Fatalf("retired-or-active VLESS UUID reused: %v", err)
 	}
+	// UUIDs with different middle bytes can resolve to the same VLESS
+	// authenticated user: ProcessUUID zeroes bytes 6 and 7. No
+	// alternate email/inbound may reserve such an impersonating alias.
+	alias := req
+	alias.Grant.OperationID = uuid.New()
+	alias.Grant.ProfileID = grant.ProfileID
+	alias.Grant.ProfileID[6] ^= 1
+	alias.Grant.ProfileID[7] ^= 2
+	alias.Grant.Email = "alias@lab"
+	alias.Grant.InboundTag = "other-vless-inbound"
+	if alias.Grant.ProfileID == grant.ProfileID {
+		t.Fatal("VLESS alias test did not change the printed profile UUID")
+	}
+	if _, err := QueueTechnicalProfile(ctx, db, alias); !errors.Is(err, ErrProfileConflict) {
+		t.Fatalf("normalized VLESS UUID alias could reserve a second profile: %v", err)
+	}
+
 	wrong := req
 	wrong.Grant.OperationID = uuid.New()
 	wrong.Grant.ProfileID = uuid.New()
