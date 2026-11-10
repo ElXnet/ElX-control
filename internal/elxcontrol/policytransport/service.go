@@ -251,6 +251,7 @@ type service interface {
 	nextTechnicalInstall(context.Context, *emptypb.Empty) (*wrapperspb.BytesValue, error)
 	confirmTechnicalInstall(context.Context, *wrapperspb.BytesValue) (*emptypb.Empty, error)
 	nextTechnicalRetire(context.Context, *emptypb.Empty) (*wrapperspb.BytesValue, error)
+	nextTechnicalRecovery(context.Context, *emptypb.Empty) (*wrapperspb.BytesValue, error)
 	confirmTechnicalRetire(context.Context, *wrapperspb.BytesValue) (*emptypb.Empty, error)
 	confirm(context.Context, *wrapperspb.BytesValue) (*emptypb.Empty, error)
 	lease(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
@@ -298,6 +299,7 @@ func register(g *grpc.Server, db *sql.DB, source func()([]Binding,error), bindin
 			{MethodName: "TechnicalInstallNext", Handler: handler("TechnicalInstallNext", (*server).nextTechnicalInstall)},
 			{MethodName: "TechnicalInstallConfirm", Handler: handler("TechnicalInstallConfirm", (*server).confirmTechnicalInstall)},
 			{MethodName: "TechnicalRetireNext", Handler: handler("TechnicalRetireNext", (*server).nextTechnicalRetire)},
+			{MethodName: "TechnicalRecoveryNext", Handler: handler("TechnicalRecoveryNext", (*server).nextTechnicalRecovery)},
 			{MethodName: "TechnicalRetireConfirm", Handler: handler("TechnicalRetireConfirm", (*server).confirmTechnicalRetire)},
 			{MethodName: "Confirm", Handler: handler("Confirm", (*server).confirm)},
 			{MethodName: "Lease", Handler: handler("Lease", (*server).lease)},
