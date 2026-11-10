@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"errors"
-	"time"
 
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/corepolicy"
 	"github.com/google/uuid"
@@ -80,7 +79,7 @@ func ConfirmTechnicalInstalled(ctx context.Context, db *sql.DB,
 	}
 	grant := corepolicy.ProfileGrantIntent{
 		Version: 2, Action: "install",
-		OperationID: uuid.MustParse(proof.OperationID.String()),
+		OperationID: proof.OperationID,
 		ProfileID: uuid.MustParse(profileID),
 		NodeID: uuid.MustParse(nodeID), ExecutorID: uuid.MustParse(executorID),
 		ResourceID: uuid.MustParse(resourceID),
