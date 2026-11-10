@@ -1,9 +1,9 @@
 package journal
 
 import (
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
-	"crypto/ed25519"
 	"database/sql"
 	"errors"
 	"sync"
