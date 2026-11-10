@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/corepolicy"
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/journal"
@@ -350,10 +351,41 @@ func ApplyNext(ctx context.Context, conn grpc.ClientConnInterface, core Applier)
 			!validID(job.Operation) || job.AuthorityGeneration == 0 {
 			return status.Error(codes.FailedPrecondition, "managed journal adapter unavailable or unbound")
 		}
-		proof, err = managed.ApplyManagedWithProof(ctx, job.Policy, job.Challenge, job.PublicKey, corepolicy.ManagedOperation{
+		op := corepolicy.ManagedOperation{
 			OperationID: job.Operation, NodeID: job.NodeID, ResourceID: job.ResourceID,
 			ExecutorID: job.ExecutorID, AuthorityGeneration: job.AuthorityGeneration,
-		})
+		}
+		proof, err = managed.ApplyManagedWithProof(ctx, job.Policy, job.Challenge, job.PublicKey, op)
+		// A freshly reserved scheduler increase may be delivered before the
+		// agent's 3-second lease renewal tick. The core MUST reject that
+		// increase against the old signed ceiling. Request a new *Control-
+		// signed* lease for the exact trusted job and retry the SAME operation
+		// once. No unsigned override, speculative ACK or altered rate is used.
+		if err != nil && status.Code(err) == codes.PermissionDenied &&
+			strings.Contains(status.Convert(err).Message(), "managed subscription update exceeds signed Control authority") &&
+			job.AuthorityGeneration <= math.MaxInt64 {
+			leaseCore, canRenew := core.(LeaseCore)
+			binding := Binding{
+				Target: journal.Target{NodeID: job.NodeID, ResourceID: job.ResourceID},
+				ExecutorID: job.ExecutorID, Subscription: job.Policy.ID,
+				Epoch: int64(job.AuthorityGeneration), PublicKey: job.PublicKey,
+			}
+			if canRenew && binding.Valid() {
+				if leaseErr := ApplyLease(ctx, conn, leaseCore, binding); leaseErr != nil {
+					// A legitimate delay in Control/FUP/lease authority must
+					// keep the job pending rather than crash the node agent.
+					// Still return permanent invalid identity/signature
+					// errors unchanged, with no local permission grant.
+					if code := status.Code(leaseErr); code == codes.Unavailable ||
+						code == codes.DeadlineExceeded || code == codes.FailedPrecondition {
+						return status.Error(codes.Unavailable, "updated signed rate lease not yet available")
+					}
+					return leaseErr
+				}
+				proof, err = managed.ApplyManagedWithProof(ctx,
+					job.Policy, job.Challenge, job.PublicKey, op)
+			}
+		}
 	} else {
 		proof, err = core.ApplyWithProof(ctx, job.Policy, job.Challenge, job.PublicKey)
 	}
