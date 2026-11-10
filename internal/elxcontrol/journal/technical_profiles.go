@@ -165,10 +165,10 @@ func QueueTechnicalProfile(ctx context.Context, db *sql.DB,
 
 	_, err = tx.ExecContext(ctx, `INSERT INTO elx_technical_profile_operations
 	    (operation_id,profile_id,action,payload_sha256,profile_generation,
-	    authority_generation,policy_revision,state)
-	    VALUES($1,$2,'prepare',$3,$4,$5,$6,'INTENT')`,
+	    authority_generation,policy_revision,not_before,not_after,state)
+	    VALUES($1,$2,'prepare',$3,$4,$5,$6,$7,$8,'INTENT')`,
 		g.OperationID, g.ProfileID, out.Digest[:], g.ProfileGeneration,
-		g.AuthorityGeneration, g.PolicyRevision)
+		g.AuthorityGeneration, g.PolicyRevision, g.NotBefore, g.NotAfter)
 	if err != nil {
 		return out, fmt.Errorf("record technical profile intent: %w", err)
 	}
