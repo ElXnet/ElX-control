@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
@@ -28,6 +30,22 @@ func serveAgent(ctx context.Context, args []string) error {
 	}
 	if fs.NArg() != 0 || *interval < 200*time.Millisecond || *interval > time.Hour {
 		return errors.New("invalid agent polling interval")
+	}
+	technical := os.Getenv("ELX_AGENT_TECHNICAL_PREPARE")
+	if technical != "" && technical != "1" {
+		return errors.New("unsupported technical provisioning agent flag")
+	}
+	var technicalPublicKey ed25519.PublicKey
+	if technical == "1" {
+		if os.Getenv("ELX_AGENT_MANAGED") != "1" ||
+			os.Getenv("ELX_AGENT_LEASE_REQUIRED") != "1" {
+			return errors.New("technical provisioning requires managed signed lease mode")
+		}
+		decoded, err := base64.StdEncoding.DecodeString(os.Getenv("ELXRAY_CONTROL_LEASE_PUBLIC_KEY"))
+		if err != nil || len(decoded) != ed25519.PublicKeySize {
+			return errors.New("technical provisioning requires pinned Control public key")
+		}
+		technicalPublicKey = ed25519.PublicKey(decoded)
 	}
 	if os.Getenv("ELX_AGENT_MANAGED") == "1" {
 		if os.Getenv("ELX_AGENT_LEASE_REQUIRED") != "1" ||
@@ -107,6 +125,34 @@ func serveAgent(ctx context.Context, args []string) error {
 				// Malformed, unauthorized or mismatched policy evidence must
 				// stop the worker instead of silently re-trying indefinitely.
 				return fmt.Errorf("policy application failed closed: %w", err)
+			}
+		}
+		// Stage 4 prepares technical identities only. The same signed job
+		// remains in Control INTENT; no owner reservation or payload grant
+		// is inferred from this non-authorizing core readback.
+		if technical == "1" {
+			bindings, loadErr := loadBindings()
+			if loadErr != nil {
+				return fmt.Errorf("trusted technical profile manifest unavailable: %w", loadErr)
+			}
+			prepareCtx, prepareCancel := context.WithTimeout(ctx, 10*time.Second)
+			prepareErr := policytransport.ApplyTechnicalPreparation(
+				prepareCtx, conn, core, bindings, technicalPublicKey)
+			prepareCancel()
+			if ctx.Err() != nil {
+				return nil
+			}
+			if prepareErr != nil {
+				switch status.Code(prepareErr) {
+				case codes.NotFound:
+					// No approved technical reservation to prepare.
+				case codes.Unavailable, codes.DeadlineExceeded, codes.FailedPrecondition:
+					// No speculative ACK or traffic allowance. Retry after
+					// the lease and protected core journal become ready.
+					fmt.Fprintln(os.Stderr, "ElX technical preparation not yet confirmed; will retry:", prepareErr)
+				default:
+					return fmt.Errorf("technical profile preparation failed closed: %w", prepareErr)
+				}
 			}
 		}
 		// Drain tasks are authorized and persisted centrally; the node never
