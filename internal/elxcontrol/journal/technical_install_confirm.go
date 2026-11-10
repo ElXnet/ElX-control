@@ -41,7 +41,7 @@ func ConfirmTechnicalInstalled(ctx context.Context, db *sql.DB,
 	    p.subscription_id,p.email,p.inbound_tag,p.profile_generation,
 	    p.authority_generation,p.policy_revision,
 	    p.state,o.state,o.flow,o.not_before,o.not_after,o.payload_sha256,
-	    w.store_id::text,w.core_incarnation::text,c.public_key
+	    w.store_id::text,COALESCE(w.core_incarnation::text,''),c.public_key
 	    FROM elx_technical_profile_operations o
 	    JOIN elx_technical_profiles p ON p.profile_id=o.profile_id
 	    JOIN elx_core_store_witnesses w ON w.node_id=p.node_id AND w.resource_id=p.resource_id
@@ -60,7 +60,7 @@ func ConfirmTechnicalInstalled(ctx context.Context, db *sql.DB,
 	      AND NOT EXISTS (SELECT 1 FROM elx_operations rate
 	          WHERE rate.node_id=p.node_id AND rate.resource_id=p.resource_id
 	            AND rate.applied_at IS NULL)
-	    FOR UPDATE OF o,p,w,g,t`,
+	    FOR UPDATE OF o,p,w,g,t,c,e`,
 		proof.OperationID, proof.ProfileID, proof.NodeID, proof.ResourceID,
 		proof.ExecutorID).Scan(
 			&profileID, &nodeID, &resourceID, &executorID, &subscriptionID,
