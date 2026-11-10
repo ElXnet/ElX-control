@@ -81,6 +81,47 @@ func TestStage4TechnicalProfileReservationIsDurableButNotAdmitted(t *testing.T) 
 	if _, err := NextTechnicalProfile(ctx, db, target, executor, "other"); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("foreign subscription could fetch pending profile: %v", err)
 	}
+	// INSTALL is a second, independently signed durable operation. Its
+	// reservation cannot make the prepared profile an admitted VLESS user.
+	install := grant
+	install.Version = 2
+	install.Action = "install"
+	install.Flow = "xtls-rprx-vision"
+	install.OperationID = uuid.New()
+	installReq := InstallReservation{
+		Grant: install, EntitlementID: entitlement, PinnedSubscription: "lab",
+	}
+	installFirst, err := QueueTechnicalInstall(ctx, db, installReq)
+	if err != nil || installFirst.State != "INTENT" || installFirst.AlreadyQueued {
+		t.Fatalf("signed INSTALL was not queued separately: %+v %v", installFirst, err)
+	}
+	installRetry, err := QueueTechnicalInstall(ctx, db, installReq)
+	if err != nil || !installRetry.AlreadyQueued || installRetry.Digest != installFirst.Digest {
+		t.Fatalf("signed INSTALL idempotency failed: %+v %v", installRetry, err)
+	}
+	pendingInstall, err := NextTechnicalInstall(ctx, db, target, executor, "lab")
+	if err != nil || pendingInstall.Flow != install.Flow ||
+		pendingInstall.Version != 2 || pendingInstall.Action != "install" ||
+		string(pendingInstall.Transcript()) != string(install.Transcript()) {
+		t.Fatalf("pending INSTALL changed signed fields: %+v %v", pendingInstall, err)
+	}
+	if _, err := NextTechnicalInstall(ctx, db, target, uuid.NewString(), "lab"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("foreign executor read another installation: %v", err)
+	}
+	if _, err := NextTechnicalInstall(ctx, db, target, executor, "other"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("foreign subscription read another installation: %v", err)
+	}
+	conflictingInstall := installReq
+	conflictingInstall.Grant.OperationID = uuid.New()
+	if _, err := QueueTechnicalInstall(ctx, db, conflictingInstall); !errors.Is(err, ErrProfileConflict) {
+		t.Fatalf("second INSTALL reserved same profile: %v", err)
+	}
+	var afterInstallPhase string
+	if err := db.QueryRowContext(ctx, `SELECT state FROM elx_technical_profiles WHERE profile_id=$1`,
+		grant.ProfileID).Scan(&afterInstallPhase); err != nil || afterInstallPhase != "prepared" {
+		t.Fatalf("unsigned central INSTALL incorrectly admitted profile: %s %v", afterInstallPhase, err)
+	}
+
 	stolen := req
 	stolen.Grant.OperationID = grant.OperationID
 	stolen.Grant.ProfileID = uuid.New()
