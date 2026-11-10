@@ -18,8 +18,9 @@ import threading
 import time
 
 from test_multinode import require, wait_for
-from test_lease_partition import LeasedLab, eventually_live, assert_denied
-from test_live_scheduler import fixture, wait_verified, saturate, await_redistribution
+from test_lease_partition import eventually_live, assert_denied
+from test_live_scheduler import (JournaledSchedulerLab, fixture,
+                                 wait_verified, saturate, await_redistribution)
 
 BLOCK = b"fup-traffic-" * 340  # 4080 bytes; well below socket payload limits
 
@@ -75,7 +76,7 @@ def run():
         failures = []
         busy = None
         try:
-            lab = LeasedLab(Path(temp))
+            lab = JournaledSchedulerLab(Path(temp))
             lab.echo.idle_timeout = 120
             built = subprocess.run(
                 ["go", "build", "-o", str(lab.folder / "rate-scheduler-fixture"),
