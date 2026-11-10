@@ -51,6 +51,9 @@ func ConfirmTechnicalInstalled(ctx context.Context, db *sql.DB,
 	    JOIN elx_entitlements e ON e.id=p.entitlement_id
 	    JOIN elx_operation_targets t ON t.node_id=p.node_id AND t.resource_id=p.resource_id
 	    WHERE o.operation_id=$1 AND o.profile_id=$2 AND o.action='install'
+	      AND o.profile_generation=p.profile_generation
+	      AND o.authority_generation=p.authority_generation
+	      AND o.policy_revision=p.policy_revision
 	      AND p.node_id=$3 AND p.resource_id=$4 AND p.executor_id=$5
 	      AND w.executor_id=p.executor_id AND NOT c.revoked
 	      AND g.epoch=p.authority_generation AND w.authority_generation=p.authority_generation
