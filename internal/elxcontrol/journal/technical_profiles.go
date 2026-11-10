@@ -40,7 +40,15 @@ type ProfileReservationState struct {
 }
 
 func validTechnicalReservation(r ProfileReservation, now time.Time) bool {
-	g := r.Grant
+	if r.Grant.SubscriptionID != r.PinnedSubscription {
+		return false
+	}
+	entitlement, err := uuid.Parse(r.EntitlementID)
+	return err == nil && entitlement != uuid.Nil && entitlement.String() == r.EntitlementID &&
+		validTechnicalGrant(r.Grant, now)
+}
+
+func validTechnicalGrant(g corepolicy.ProfileGrantIntent, now time.Time) bool {
 	if g.Version != 1 || g.Action != "prepare" ||
 		g.NodeID == uuid.Nil || g.ResourceID == uuid.Nil ||
 		g.ExecutorID == uuid.Nil || g.OperationID == uuid.Nil ||
@@ -48,15 +56,13 @@ func validTechnicalReservation(r ProfileReservation, now time.Time) bool {
 		g.AuthorityGeneration == 0 || g.PolicyRevision == 0 ||
 		g.NotAfter <= g.NotBefore || g.NotAfter-g.NotBefore > 60 ||
 		g.NotAfter <= now.Unix() || g.NotBefore > now.Unix()+5 ||
-		g.SubscriptionID != r.PinnedSubscription ||
 		!technicalLabel.MatchString(g.SubscriptionID) ||
 		!technicalLabel.MatchString(g.Email) ||
 		!technicalTag.MatchString(g.InboundTag) ||
 		len(g.Transcript()) == 0 {
 		return false
 	}
-	entitlement, err := uuid.Parse(r.EntitlementID)
-	return err == nil && entitlement != uuid.Nil && entitlement.String() == r.EntitlementID
+	return true
 }
 
 // QueueTechnicalProfile persists a signed-grant *candidate*, after checking
@@ -244,9 +250,7 @@ func NextTechnicalProfile(ctx context.Context, db *sql.DB,
 	}
 	computed := sha256.Sum256(g.Transcript())
 	if generation != 1 || epoch <= 0 || revision <= 0 ||
-		!validTechnicalReservation(ProfileReservation{Grant: g,
-			EntitlementID: "00000000-0000-4000-8000-000000000001",
-			PinnedSubscription: subscriptionID}, now) ||
+		!validTechnicalGrant(g, now) ||
 		!bytes.Equal(digest, computed[:]) {
 		return corepolicy.ProfileGrantIntent{}, ErrProfileAuthority
 	}
