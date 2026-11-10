@@ -29,6 +29,9 @@ type TechnicalPrepared struct {
 	AuthorityGeneration uint64
 	PolicyRevision      uint64
 	TranscriptSHA256    string
+	InstallOperationID  string
+	InstallTranscriptSHA256 string
+	Flow                string
 	Phase               string
 }
 
@@ -60,6 +63,35 @@ func (c *Client) PrepareTechnicalProfile(ctx context.Context, job []byte) (Techn
 	return prepared, nil
 }
 
+// InstallTechnicalProfile forwards a separately signed v2 INSTALL instruction.
+// It does not convert a local technical readback into centrally authorized
+// APPLIED, device admission, or session-owner release.
+func (c *Client) InstallTechnicalProfile(ctx context.Context, job []byte) (TechnicalPrepared, error) {
+	if c == nil || c.conn == nil || len(job) == 0 || len(job) > 4096 {
+		return TechnicalPrepared{}, errors.New("missing or oversized signed install job")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var response wrapperspb.BytesValue
+	if err := c.conn.Invoke(ctx, technicalProfileService+"Install",
+		wrapperspb.Bytes(job), &response, grpc.MaxCallRecvMsgSize(4096)); err != nil {
+		return TechnicalPrepared{}, err
+	}
+	if len(response.Value) == 0 || len(response.Value) > 4096 {
+		return TechnicalPrepared{}, errors.New("invalid installed technical profile readback size")
+	}
+	var installed TechnicalPrepared
+	if err := json.Unmarshal(response.Value, &installed); err != nil {
+		return TechnicalPrepared{}, err
+	}
+	id, err := uuid.Parse(installed.ProfileID)
+	if err != nil || id == uuid.Nil || id.String() != installed.ProfileID ||
+		installed.Phase != "INSTALLED" || installed.InstallOperationID == "" {
+		return TechnicalPrepared{}, errors.New("core did not verify live VLESS registration")
+	}
+	return installed, nil
+}
+
 // ReadbackTechnicalProfile is read-only and must not be confused with signed
 // proof of live VLESS AddUser application.
 func (c *Client) ReadbackTechnicalProfile(ctx context.Context, profileID string) (TechnicalPrepared, error) {
@@ -81,7 +113,8 @@ func (c *Client) ReadbackTechnicalProfile(ctx context.Context, profileID string)
 	if err := json.Unmarshal(response.Value, &prepared); err != nil {
 		return TechnicalPrepared{}, err
 	}
-	if prepared.ProfileID != profileID || prepared.Phase != "PREPARED" {
+	if prepared.ProfileID != profileID ||
+		(prepared.Phase != "PREPARED" && prepared.Phase != "INSTALLED") {
 		return TechnicalPrepared{}, errors.New("inconsistent non-authorizing technical profile readback")
 	}
 	return prepared, nil
