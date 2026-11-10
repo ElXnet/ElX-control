@@ -35,6 +35,13 @@ func serveAgent(ctx context.Context, args []string) error {
 	if technical != "" && technical != "1" {
 		return errors.New("unsupported technical provisioning agent flag")
 	}
+	installEnabled := os.Getenv("ELX_AGENT_TECHNICAL_INSTALL")
+	if installEnabled != "" && installEnabled != "1" {
+		return errors.New("unsupported signed technical INSTALL agent flag")
+	}
+	if installEnabled == "1" && technical != "1" {
+		return errors.New("signed INSTALL requires independently pinned PREPARE mode")
+	}
 	var technicalPublicKey ed25519.PublicKey
 	if technical == "1" {
 		if os.Getenv("ELX_AGENT_MANAGED") != "1" ||
@@ -152,6 +159,33 @@ func serveAgent(ctx context.Context, args []string) error {
 					fmt.Fprintln(os.Stderr, "ElX technical preparation not yet confirmed; will retry:", prepareErr)
 				default:
 					return fmt.Errorf("technical profile preparation failed closed: %w", prepareErr)
+				}
+			}
+		}
+		// Signed v2 INSTALL is a separate opt-in from the non-admitting
+		// v1 PREPARE. APPLIED requires verified core-signed evidence on
+		// Control's PostgreSQL primary; a lost reply is never assumed safe.
+		if installEnabled == "1" {
+			bindings, err := loadBindings()
+			if err != nil {
+				return fmt.Errorf("technical INSTALL manifest unavailable: %w", err)
+			}
+			installCtx, done := context.WithTimeout(ctx, 15*time.Second)
+			err = policytransport.ApplyTechnicalInstall(
+				installCtx, conn, core, bindings, technicalPublicKey)
+			done()
+			if ctx.Err() != nil {
+				return nil
+			}
+			if err != nil {
+				switch status.Code(err) {
+				case codes.NotFound:
+					// No authoritative INSTALL intent on this executor.
+				case codes.Unavailable, codes.DeadlineExceeded, codes.FailedPrecondition:
+					// Never advance without a pinned Control confirmation.
+					fmt.Fprintln(os.Stderr, "ElX technical INSTALL requires reconciliation:", err)
+				default:
+					return fmt.Errorf("signed technical INSTALL failed closed: %w", err)
 				}
 			}
 		}
