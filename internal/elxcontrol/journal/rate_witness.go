@@ -27,7 +27,10 @@ func PendingRateWitnessEligible(ctx context.Context, db *sql.DB,
 		  AND g.resource_id=o.resource_id
 		WHERE o.node_id=$1 AND o.resource_id=$2 AND o.operation_id=$3
 		  AND m.finalized=false AND o.applied_at IS NULL
-		  AND o.revision-1=w.core_revision
+		  AND -- ElXray's live policy revision is journal target.revision+1.
+		  -- A queued next core update has journal op.revision equal to
+		  -- this current signed core revision (new core revision = op+1).
+		  AND o.revision=w.core_revision
 		  AND w.authority_generation=g.epoch AND g.epoch=$4
 	)`, target.NodeID, target.ResourceID, operationID, epoch).Scan(&eligible)
 	return eligible, err
