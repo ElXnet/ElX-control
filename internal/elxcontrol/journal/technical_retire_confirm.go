@@ -91,6 +91,17 @@ func ConfirmTechnicalRetired(ctx context.Context, db *sql.DB, proof corepolicy.R
 		return tx.Commit()
 	}
 	if phase != "prepared" && phase != "installed" { return ErrProfileConflict }
+	// A core-signed final technical outcome also proves that the exact
+	// PREPARE existed in the durable core journal. Close its original
+	// Control intent in the SAME transaction, not from an agent ACK.
+	if _, err := tx.ExecContext(ctx, `UPDATE elx_technical_profile_operations
+	    SET state='APPLIED',applied_at=clock_timestamp()
+	    WHERE profile_id=$1 AND action='prepare' AND state='INTENT'
+	      AND operation_id=(SELECT operation_id FROM elx_technical_profiles WHERE profile_id=$1)
+	      AND payload_sha256=(SELECT request_sha256 FROM elx_technical_profiles WHERE profile_id=$1)`,
+		proof.ProfileID); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE elx_technical_profile_operations
 	    SET state='APPLIED',applied_at=clock_timestamp()
 	    WHERE operation_id=$1 AND state='INTENT'`, proof.OperationID); err != nil {
