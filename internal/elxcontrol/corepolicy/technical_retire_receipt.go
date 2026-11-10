@@ -1,7 +1,3 @@
-// ErrRetireProof is returned for every untrusted, mismatched or unsigned
-// core technical-retirement attestation.
-var ErrRetireProof = errors.New("invalid pinned VLESS retirement proof")
-
 package corepolicy
 
 import (
@@ -65,7 +61,7 @@ func VerifyRetireReceipt(p RetireReceipt, grant ProfileGrantIntent, key ed25519.
 	sum := sha256.Sum256(grant.Transcript())
 	if p.TranscriptSHA256 != hex.EncodeToString(sum[:]) ||
 		!ed25519.Verify(key, p.Transcript(), p.Signature) {
-		return ErrUnauthorized
+		return ErrRetireProof
 	}
 	return nil
 }
