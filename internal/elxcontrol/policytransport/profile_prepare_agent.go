@@ -42,6 +42,9 @@ func ApplyTechnicalPreparation(ctx context.Context, conn grpc.ClientConnInterfac
 	if len(response.Value) == 0 || len(response.Value) > 4096 {
 		return status.Error(codes.InvalidArgument, "invalid Control technical job size")
 	}
+	if err := validateUniqueControlJobJSON(response.Value); err != nil {
+		return status.Error(codes.InvalidArgument, "ambiguous signed technical profile envelope")
+	}
 	var job TechnicalProfileJob
 	decoder := json.NewDecoder(bytes.NewReader(response.Value))
 	decoder.DisallowUnknownFields()
