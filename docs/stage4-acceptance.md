@@ -54,6 +54,28 @@ and negative unit tests were added on both sides. **Exact-head CI is
 still pending**. A disposable E2E-only diagnostic switch logs rejected
 scope predicates as booleans, never keys, signed payloads or IDs.
 
+## Operator-only read-only technical reconciliation audit
+
+With access to the Control primary PostgreSQL, an operator may run:
+
+```bash
+elx-control inspect-technical-recovery <canonical-node-uuid>
+```
+
+This produces a bounded JSON view of up to 128 central `INTENT`
+PREPARE/INSTALL/RETIRE operations. It includes operation/profile/resource/
+executor UUIDs, Control phase, grant expiry and a **suggested investigation
+step**. It never returns emails, secret keys or signed payloads. More than
+128 unresolved operations fails visibly instead of silently truncating.
+
+`read_only_core_proof_probe` is a possible next inspection, **NOT** proof
+that the core installed/retired the profile. No Control `APPLIED` status,
+device owner admission, rate grant, UUID reissue, or VLESS mutation occurs.
+An interrupted core `INSTALLING`/`RETIRING` remains quarantined until
+independent evidence and an explicitly approved recovery procedure exist.
+The report sees Control's phase only; it cannot establish core state
+without the separate authenticated core readback.
+
 ## Real implementation gaps before TESTING
 
 1. Make interrupted `INSTALLING` / `RETIRING` recoverable by a safe,
