@@ -21,7 +21,8 @@ import (
 
 func provision(resource, state, path, store string) error {
 	if filepath.Dir(state) != filepath.Dir(path) ||
-		!strings.Contains(filepath.Dir(path), "elx-live-scheduler-e2e-") {
+		!(strings.Contains(filepath.Dir(path), "elx-live-scheduler-e2e-") ||
+			strings.Contains(filepath.Dir(path), "elx-fup-partition-e2e-")) {
 		return errors.New("journal is not under disposable E2E directory")
 	}
 	id, err := uuid.Parse(store)
