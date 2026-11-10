@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"time"
 
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/corepolicy"
@@ -44,14 +45,19 @@ func ApplyTechnicalPreparation(ctx context.Context, conn grpc.ClientConnInterfac
 	var job TechnicalProfileJob
 	decoder := json.NewDecoder(bytes.NewReader(response.Value))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&job); err != nil || decoder.More() {
+	if err := decoder.Decode(&job); err != nil {
 		return status.Error(codes.InvalidArgument, "invalid signed technical profile envelope")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return status.Error(codes.InvalidArgument, "trailing data in signed technical profile")
 	}
 	grant := job.Grant
 	if grant.Version != 1 || grant.Action != "prepare" ||
 		grant.ProfileGeneration != 1 ||
 		grant.NotBefore > time.Now().Unix()+5 ||
 		grant.NotAfter <= time.Now().Unix() ||
+		grant.NotAfter <= grant.NotBefore ||
 		grant.NotAfter-grant.NotBefore > 60 ||
 		len(job.Signature) != ed25519.SignatureSize ||
 		!ed25519.Verify(pinnedControlKey, grant.Transcript(), job.Signature) {
@@ -103,4 +109,3 @@ func ApplyTechnicalPreparation(ctx context.Context, conn grpc.ClientConnInterfac
 	return nil
 }
 
-var ErrTechnicalPreparationNotInstalled = errors.New("technical profile prepared; live installation not yet implemented")
