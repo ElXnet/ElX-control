@@ -385,6 +385,17 @@ func ApplyNext(ctx context.Context, conn grpc.ClientConnInterface, core Applier)
 				proof, err = managed.ApplyManagedWithProof(ctx,
 					job.Policy, job.Challenge, job.PublicKey, op)
 			}
+			// A valid Control ticket may still be replaced by another
+			// concurrent 3-second renewal, or the transactional grant may
+			// have been superseded. An explicit "above signed ceiling"
+			// denial is a NON-APPLIED pending result, never permission to
+			// bypass the limiter and never grounds to kill the whole node
+			// agent. Retry next poll with fresh Control authority.
+			if err != nil && status.Code(err) == codes.PermissionDenied &&
+				strings.Contains(err.Error(), "managed subscription update exceeds signed Control authority") {
+				return status.Error(codes.Unavailable,
+					"managed rate change remains pending until a fresh signed Control ceiling is accepted")
+			}
 		}
 	} else {
 		proof, err = core.ApplyWithProof(ctx, job.Policy, job.Challenge, job.PublicKey)
