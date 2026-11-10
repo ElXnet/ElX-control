@@ -98,6 +98,7 @@ def run():
             # Diagnostic output remains in disposable local core logs only;
             # production gRPC errors stay generic and never expose store data.
             lab.base_env["ELXRAY_E2E_LEASE_DIAGNOSTICS"] = "1"
+            lab.base_env["ELX_AGENT_E2E_DIAGNOSTICS"] = "1"
             # The shared echo fixture closes idle sockets after 6 seconds.
             # This test holds a real, initially idle VPN connection across
             # telemetry collection and asynchronous rate operations, so the
@@ -158,7 +159,7 @@ def run():
             if lab is not None:
                 for log in sorted(Path(temp).glob("*.log")):
                     print(f"--- {log.name} ---", file=sys.stderr)
-                    print(log.read_text(errors="replace")[-4500:], file=sys.stderr)
+                    print(log.read_text(errors="replace")[-12000:], file=sys.stderr)
             raise
         finally:
             stop.set()
