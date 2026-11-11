@@ -97,10 +97,20 @@ func (s *server) lease(ctx context.Context,in *wrapperspb.BytesValue)(*wrappersp
 	var entitlement string
 	var ceilingUp,ceilingDown,storedEpoch int64
 	var pinnedKey []byte
-	err=s.db.QueryRowContext(ctx,`SELECT g.entitlement_id::text,g.committed_up,g.committed_down,
+	// The scheduler reserves an increase in the durable rate-move ledger
+	// before the agent applies it. During that interval committed_* is still
+	// the old limit. Sign only the MAX of the *already reserved* increase and
+	// committed limit, never a proposed value supplied by the node.
+	// A reduction retains the old ceiling until its signed drain barrier
+	// finalizes the prior commitment; both paths remain capacity-accounted.
+	err=s.db.QueryRowContext(ctx,`SELECT g.entitlement_id::text,
+		GREATEST(g.committed_up,COALESCE(m.desired_up,0)),
+		GREATEST(g.committed_down,COALESCE(m.desired_down,0)),
 		g.epoch,g.barrier_public_key
 		FROM elx_rate_grants g
 		JOIN elx_entitlements e ON e.id=g.entitlement_id
+		LEFT JOIN elx_rate_moves m ON m.node_id=g.node_id
+		  AND m.resource_id=g.resource_id AND m.finalized=false
 		WHERE g.node_id=$1 AND g.resource_id=$2 AND e.enabled=true
 		  AND e.valid_until>clock_timestamp()
 		  AND g.committed_up>0 AND g.committed_down>0

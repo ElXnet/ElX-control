@@ -86,7 +86,12 @@ class LeasedLab(Lab):
         os.setuid(self.agent_uid)
 
     def spawn(self, name, args, *, env):
-        if not name.startswith("agent"):
+        # Both the policy agent and signed-usage agent call the same
+        # root-owned Unix Commander protected by SO_PEERCRED. Running usage
+        # reporters as root silently violates ELXRAY_AGENT_UID (nobody) and
+        # causes signed telemetry to be rejected as Unavailable in the
+        # full scheduler E2E. Exercise the actual production UID boundary.
+        if not (name.startswith("agent") or name.startswith("usage")):
             return super().spawn(name, args, env=env)
         handle = (self.folder / f"{name}.log").open("a", encoding="utf-8")
         self.handles.append(handle)

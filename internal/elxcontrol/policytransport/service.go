@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/corepolicy"
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/journal"
@@ -246,6 +247,12 @@ func (s *server) confirm(ctx context.Context, in *wrapperspb.BytesValue) (*empty
 
 type service interface {
 	next(context.Context, *emptypb.Empty) (*wrapperspb.BytesValue, error)
+	nextTechnicalProfile(context.Context, *emptypb.Empty) (*wrapperspb.BytesValue, error)
+	nextTechnicalInstall(context.Context, *emptypb.Empty) (*wrapperspb.BytesValue, error)
+	confirmTechnicalInstall(context.Context, *wrapperspb.BytesValue) (*emptypb.Empty, error)
+	nextTechnicalRetire(context.Context, *emptypb.Empty) (*wrapperspb.BytesValue, error)
+	nextTechnicalRecovery(context.Context, *emptypb.Empty) (*wrapperspb.BytesValue, error)
+	confirmTechnicalRetire(context.Context, *wrapperspb.BytesValue) (*emptypb.Empty, error)
 	confirm(context.Context, *wrapperspb.BytesValue) (*emptypb.Empty, error)
 	lease(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
 	witness(context.Context, *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error)
@@ -288,6 +295,12 @@ func register(g *grpc.Server, db *sql.DB, source func()([]Binding,error), bindin
 		ServiceName: serviceName, HandlerType: (*service)(nil),
 		Methods: []grpc.MethodDesc{
 			{MethodName: "Next", Handler: handler("Next", (*server).next)},
+			{MethodName: "TechnicalProfileNext", Handler: handler("TechnicalProfileNext", (*server).nextTechnicalProfile)},
+			{MethodName: "TechnicalInstallNext", Handler: handler("TechnicalInstallNext", (*server).nextTechnicalInstall)},
+			{MethodName: "TechnicalInstallConfirm", Handler: handler("TechnicalInstallConfirm", (*server).confirmTechnicalInstall)},
+			{MethodName: "TechnicalRetireNext", Handler: handler("TechnicalRetireNext", (*server).nextTechnicalRetire)},
+			{MethodName: "TechnicalRecoveryNext", Handler: handler("TechnicalRecoveryNext", (*server).nextTechnicalRecovery)},
+			{MethodName: "TechnicalRetireConfirm", Handler: handler("TechnicalRetireConfirm", (*server).confirmTechnicalRetire)},
 			{MethodName: "Confirm", Handler: handler("Confirm", (*server).confirm)},
 			{MethodName: "Lease", Handler: handler("Lease", (*server).lease)},
 			{MethodName: "StoreWitness", Handler: handler("StoreWitness", (*server).witness)},
@@ -340,10 +353,64 @@ func ApplyNext(ctx context.Context, conn grpc.ClientConnInterface, core Applier)
 			!validID(job.Operation) || job.AuthorityGeneration == 0 {
 			return status.Error(codes.FailedPrecondition, "managed journal adapter unavailable or unbound")
 		}
-		proof, err = managed.ApplyManagedWithProof(ctx, job.Policy, job.Challenge, job.PublicKey, corepolicy.ManagedOperation{
+		op := corepolicy.ManagedOperation{
 			OperationID: job.Operation, NodeID: job.NodeID, ResourceID: job.ResourceID,
 			ExecutorID: job.ExecutorID, AuthorityGeneration: job.AuthorityGeneration,
-		})
+		}
+		proof, err = managed.ApplyManagedWithProof(ctx, job.Policy, job.Challenge, job.PublicKey, op)
+		// Only the dedicated core lease-ceiling status qualifies for retry.
+		// The core's generic ErrUnauthorized also covers forged operation
+		// scope, executor, generation and hash. Treating that as transient
+		// previously hid permanent authorization errors and stalled lower.
+		// A freshly reserved scheduler increase may be delivered before the
+		// agent's 3-second lease renewal tick. The core MUST reject that
+		// increase against the old signed ceiling. Request a new *Control-
+		// signed* lease for the exact trusted job and retry the SAME operation
+		// once. No unsigned override, speculative ACK or altered rate is used.
+		if err != nil && status.Code(err) == codes.PermissionDenied &&
+			strings.Contains(status.Convert(err).Message(), "elx-managed-lease-ceiling-pending-v1") &&
+			job.AuthorityGeneration <= math.MaxInt64 {
+			leaseCore, canRenew := core.(LeaseCore)
+			binding := Binding{
+				Target: journal.Target{NodeID: job.NodeID, ResourceID: job.ResourceID},
+				ExecutorID: job.ExecutorID, Subscription: job.Policy.ID,
+				Epoch: int64(job.AuthorityGeneration), PublicKey: job.PublicKey,
+			}
+			if canRenew && binding.Valid() {
+				if leaseErr := ApplyLease(ctx, conn, leaseCore, binding); leaseErr != nil {
+					// A legitimate delay in Control/FUP/lease authority must
+					// keep the job pending rather than crash the node agent.
+					// Still return permanent invalid identity/signature
+					// errors unchanged, with no local permission grant.
+					if code := status.Code(leaseErr); code == codes.Unavailable ||
+						code == codes.DeadlineExceeded || code == codes.FailedPrecondition ||
+						(code == codes.PermissionDenied &&
+							strings.Contains(leaseErr.Error(), "Control lease or independent store HWM not accepted")) {
+						// An explicit failed core witness is not a grant.
+						// During a concurrent scheduler revision, the old
+						// witness can expire before renewal. Keep the
+						// reserved command INTENT, never crash the agent,
+						// and try a fresh authoritative lease on next poll.
+						return status.Error(codes.Unavailable,
+							"Control signed lease/store witness not yet accepted for pending rate operation")
+					}
+					return leaseErr
+				}
+				proof, err = managed.ApplyManagedWithProof(ctx,
+					job.Policy, job.Challenge, job.PublicKey, op)
+			}
+			// A valid Control ticket may still be replaced by another
+			// concurrent 3-second renewal, or the transactional grant may
+			// have been superseded. An explicit "above signed ceiling"
+			// denial is a NON-APPLIED pending result, never permission to
+			// bypass the limiter and never grounds to kill the whole node
+			// agent. Retry next poll with fresh Control authority.
+			if err != nil && status.Code(err) == codes.PermissionDenied &&
+				strings.Contains(status.Convert(err).Message(), "elx-managed-lease-ceiling-pending-v1") {
+				return status.Error(codes.Unavailable,
+					"managed rate change remains pending until a fresh signed Control ceiling is accepted")
+			}
+		}
 	} else {
 		proof, err = core.ApplyWithProof(ctx, job.Policy, job.Challenge, job.PublicKey)
 	}

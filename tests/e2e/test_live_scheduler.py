@@ -13,11 +13,58 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 
 from test_multinode import command, read_exact, require, wait_for
 from test_lease_partition import LeasedLab, eventually_live
+from stage4_workspace import stage4_core_source, build_disposable_rate_fixture
 
 BLOCK = b"v" * 4096
+
+class JournaledSchedulerLab(LeasedLab):
+    """Two real managed cores with the Stage-3 durable operation journal.
+
+    Earlier CI only enabled ELXRAY_MODE=managed, but omitted the core
+    journal. Its agent then sent a managed operation to a node that could
+    *never* accept the operation-bearing RPC. Preserve the production
+    requirement instead of downgrading the core or suppressing the failure.
+    """
+
+    def __init__(self, folder):
+        super().__init__(folder)
+        self.store_ids = [str(uuid.uuid4()) for _ in range(2)]
+        self.journals = [folder / f"node-{i}-operations.json" for i in range(2)]
+        core_repo = stage4_core_source(__file__)
+        self.core_repo = core_repo
+        runner = subprocess.run([
+            "go", "run", "-tags=elx_e2e_provision", str(Path(__file__).with_name("provision_managed_core.go")),
+            self.resource_id,
+            str(folder / "node-0-state.json"), str(self.journals[0]), self.store_ids[0],
+            str(folder / "node-1-state.json"), str(self.journals[1]), self.store_ids[1],
+        ], cwd=core_repo, env={
+            **os.environ, "ELX_STAGE4_E2E_DISPOSABLE": "1",
+        }, text=True, capture_output=True, check=False, timeout=120)
+        require(runner.returncode == 0,
+                f"managed core journal provisioning failed: {runner.stderr[-1800:]}")
+        # Every consumer (scheduler, FUP and static-admission tests) owns
+        # a fresh ephemeral directory. Build once HERE before any seed().
+        build_disposable_rate_fixture(folder, Path(__file__).resolve().parents[2],
+                                      self.env())
+
+    def env(self, *, node=None, cert=None):
+        env = super().env(node=node, cert=cert)
+        if node is not None and hasattr(self, "journals"):
+            env["ELXRAY_OP_JOURNAL"] = str(self.journals[node])
+            env["ELX_AGENT_STORE_WITNESS_REQUIRED"] = "1"
+        return env
+
+    def seed(self):
+        super().seed()
+        for i in range(2):
+            # An administrative baseline pinned independently in PostgreSQL
+            # is mandatory before the first short-lived lease with a journal.
+            fixture(self, "witness", self.node_ids[i], self.resource_id,
+                    self.executor_ids[i], self.store_ids[i])
 
 
 def fixture(lab, *args):
@@ -94,21 +141,17 @@ def run():
         failures = []
         traffic = None
         try:
-            lab = LeasedLab(Path(temp))
+            lab = JournaledSchedulerLab(Path(temp))
+            # Diagnostic output remains in disposable local core logs only;
+            # production gRPC errors stay generic and never expose store data.
+            lab.base_env["ELXRAY_E2E_LEASE_DIAGNOSTICS"] = "1"
+            lab.base_env["ELX_AGENT_E2E_DIAGNOSTICS"] = "1"
             # The shared echo fixture closes idle sockets after 6 seconds.
             # This test holds a real, initially idle VPN connection across
             # telemetry collection and asynchronous rate operations, so the
             # echo endpoint must not terminate it before the core does.
             lab.echo.idle_timeout = 120
-            root = Path(__file__).resolve().parents[2]
-            compiled = subprocess.run(
-                ["go", "build", "-o", str(lab.folder / "rate-scheduler-fixture"),
-                 "./tests/e2e/rate_scheduler_fixture"],
-                cwd=root, env=lab.env(), capture_output=True, text=True,
-                timeout=120, check=False,
-            )
-            require(compiled.returncode == 0,
-                    f"fixture compile failed: {compiled.stderr[-1500:]}")
+            # JournaledSchedulerLab already built its own disposable fixture.
             lab.start()
             # Use real Control grants, not a test-only bypass of the lease API.
             lab.seed()
@@ -152,10 +195,20 @@ def run():
                   f"node0={lower} node1={higher}; upload/download budget 500000 B/s",
                   flush=True)
         except BaseException:
+            if lab is not None and (lab.folder / "rate-scheduler-fixture").is_file():
+                # Audit actual DB commitments before interpreting an INTENT
+                # as a committed rate change or a core-signed barrier.
+                try:
+                    print("--- signed-rate PostgreSQL state ---", file=sys.stderr)
+                    print(fixture(lab, "fup-state", lab.entitlement),
+                          file=sys.stderr)
+                except BaseException as audit_error:
+                    print(f"diagnostic ledger read unavailable: {audit_error}",
+                          file=sys.stderr)
             if lab is not None:
                 for log in sorted(Path(temp).glob("*.log")):
                     print(f"--- {log.name} ---", file=sys.stderr)
-                    print(log.read_text(errors="replace")[-4500:], file=sys.stderr)
+                    print(log.read_text(errors="replace")[-12000:], file=sys.stderr)
             raise
         finally:
             stop.set()

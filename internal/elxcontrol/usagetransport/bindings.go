@@ -34,18 +34,18 @@ func (s *receiver) bindings(ctx context.Context, _ *emptypb.Empty) (*wrapperspb.
 		  AND p.starts_at<=clock_timestamp() AND p.ends_at>clock_timestamp()
 		  AND g.committed_up>0 AND g.committed_down>0
 		ORDER BY a.executor_id,a.accounting_id,sc.id LIMIT 1001`,node)
-	if err!=nil{return nil,status.Error(codes.Unavailable,"authoritative usage assignments unavailable")}
+	if err!=nil{return nil,transportError(err)}
 	defer rows.Close()
 	bindings:=make([]accounting.RemoteBinding,0)
 	for rows.Next(){
 		b:=accounting.RemoteBinding{NodeID:node}
 		if err:=rows.Scan(&b.ExecutorID,&b.Incarnation,&b.AccountingID,&b.Generation,&b.ScheduleID);err!=nil{
-			return nil,status.Error(codes.Unavailable,"invalid usage assignment data")
+			return nil,transportError(err)
 		}
 		if !b.Valid(){return nil,status.Error(codes.FailedPrecondition,"untrusted usage assignment")}
 		bindings=append(bindings,b)
 	}
-	if err:=rows.Err();err!=nil{return nil,status.Error(codes.Unavailable,"cannot read usage assignments")}
+	if err:=rows.Err();err!=nil{return nil,transportError(err)}
 	if len(bindings)>1000{return nil,status.Error(codes.ResourceExhausted,"too many signed usage assignments")}
 	payload,err:=json.Marshal(bindings)
 	if err!=nil{return nil,status.Error(codes.Internal,"cannot encode usage assignments")}

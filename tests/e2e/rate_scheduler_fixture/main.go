@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/journal"
@@ -66,6 +68,24 @@ func seed(ctx context.Context, db *sql.DB, args []string) error {
 		}
 	}
 	return nil
+}
+
+// provisionWitness binds an existing disposable PostgreSQL core snapshot to
+// an independently provisioned ElXray journal StoreID. It never trusts a
+// node-supplied receipt as evidence of that initial authoritative baseline.
+func provisionWitness(ctx context.Context, db *sql.DB, args []string) error {
+	if len(args) != 4 {
+		return errors.New("witness: node resource executor core-store UUID")
+	}
+	for _, id := range args {
+		if !canonical(id) {
+			return errors.New("witness requires four canonical UUIDs")
+		}
+	}
+	return journal.ProvisionCoreStoreWitness(ctx, db, journal.CoreStoreWitness{
+		NodeID: args[0], ResourceID: args[1], ExecutorID: args[2],
+		StoreID: args[3], AuthorityGeneration: 1, CoreRevision: 1,
+	})
 }
 
 func inspect(ctx context.Context, db *sql.DB, entitlement string) error {
@@ -172,9 +192,95 @@ func readFUPState(ctx context.Context,db *sql.DB,entitlement string) error {
 	return json.NewEncoder(os.Stdout).Encode(s)
 }
 
+
+type technicalSnapshot struct {
+	ProfileState string `json:"profileState"`
+	Operations map[string]string `json:"operations"`
+	StoreID string `json:"storeId"`
+	CoreBoot string `json:"coreBoot"`
+	CoreRevision int64 `json:"coreRevision"`
+	CommittedUp int64 `json:"committedUp"`
+	CommittedDown int64 `json:"committedDown"`
+	ActiveSlots int64 `json:"activeSlots"`
+}
+
+// Independent read-only Control snapshot, only for guarded disposable elx_test.
+func technicalState(ctx context.Context, db *sql.DB, args []string) error {
+	if len(args)!=2 || !canonical(args[0]) || !canonical(args[1]) {
+		return errors.New("technical-state requires canonical profile and node UUIDs")
+	}
+	var s technicalSnapshot
+	s.Operations=make(map[string]string)
+	err:=db.QueryRowContext(ctx,`SELECT p.state,w.store_id::text,
+	    COALESCE(w.core_incarnation::text,''),w.core_revision,
+	    g.committed_up,g.committed_down,e.active_slots
+	    FROM elx_technical_profiles p
+	    JOIN elx_core_store_witnesses w ON w.node_id=p.node_id
+	    AND w.resource_id=p.resource_id
+	    JOIN elx_rate_grants g ON g.node_id=p.node_id AND g.resource_id=p.resource_id
+	    AND g.entitlement_id=p.entitlement_id
+	    JOIN elx_entitlements e ON e.id=p.entitlement_id
+	    WHERE p.profile_id=$1 AND p.node_id=$2`,args[0],args[1]).Scan(
+	    &s.ProfileState,&s.StoreID,&s.CoreBoot,&s.CoreRevision,
+	    &s.CommittedUp,&s.CommittedDown,&s.ActiveSlots)
+	if err!=nil{return err}
+	rows,err:=db.QueryContext(ctx,`SELECT action,state
+	    FROM elx_technical_profile_operations WHERE profile_id=$1 ORDER BY action`,args[0])
+	if err!=nil{return err}
+	defer rows.Close()
+	for rows.Next(){
+		var action,state string
+		if err=rows.Scan(&action,&state);err!=nil{return err}
+		if _,duplicate:=s.Operations[action];duplicate{
+			return errors.New("duplicate technical operation action")
+		}
+		s.Operations[action]=state
+	}
+	if err=rows.Err();err!=nil{return err}
+	return json.NewEncoder(os.Stdout).Encode(s)
+}
+
+
+// holdTechnicalConfirm is a disposable fault-injection lab process.
+// It holds only the exact already-queued SQL operation row, preventing the
+// Control proof ACK transaction from committing. It never forges a core
+// receipt, mutates a VLESS user, changes a grant, or touches any live DB.
+// Killing the helper releases the lock and closes its transaction.
+func holdTechnicalConfirm(ctx context.Context, db *sql.DB, args []string) error {
+	if os.Getenv("ELX_STAGE4_E2E_DISPOSABLE") != "1" ||
+		len(args) != 2 || !canonical(args[0]) {
+		return errors.New("hold-technical-confirm requires disposable operation UUID and ready path")
+	}
+	ready := filepath.Clean(args[1])
+	if !filepath.IsAbs(ready) || !strings.HasPrefix(filepath.Base(filepath.Dir(ready)), "elx-live-scheduler-e2e-") ||
+		filepath.Base(ready) != "technical-ack-lock.ready" {
+		return errors.New("refusing non-disposable technical confirmation fault marker")
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var locked string
+	if err := tx.QueryRowContext(ctx,`SELECT operation_id::text
+		FROM elx_technical_profile_operations
+		WHERE operation_id=$1 AND action IN ('install','retire')
+		  AND state='INTENT' FOR UPDATE`, args[0]).Scan(&locked); err != nil {
+		return err
+	}
+	if locked != args[0] {
+		return errors.New("technical confirmation lock selected another operation")
+	}
+	if err := os.WriteFile(ready, []byte("locked\n"), 0o600); err != nil {
+		return err
+	}
+	<-ctx.Done()
+	return ctx.Err() // no commit; stop/timeout ALWAYS rolls back
+}
+
 func main() {
-	if len(os.Args) < 3 || (os.Args[1] != "seed" && os.Args[1] != "inspect" && os.Args[1] != "arm-fup" && os.Args[1] != "fup-state") {
-		fmt.Fprintln(os.Stderr, "usage: rate-scheduler-fixture seed <10 args> | inspect|arm-fup|fup-state <entitlement>")
+	if len(os.Args) < 3 || (os.Args[1] != "seed" && os.Args[1] != "witness" && os.Args[1] != "inspect" && os.Args[1] != "arm-fup" && os.Args[1] != "fup-state" && os.Args[1] != "technical-state" && os.Args[1] != "hold-technical-confirm") {
+		fmt.Fprintln(os.Stderr, "usage: rate-scheduler-fixture seed <10 args> | witness <node resource executor store> | inspect|arm-fup|fup-state <entitlement>")
 		os.Exit(2)
 	}
 	dsn := os.Getenv("ELX_CONTROL_POSTGRES_DSN")
@@ -192,9 +298,20 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	timeout := 15*time.Second
+	if os.Args[1] == "hold-technical-confirm" { timeout = 90*time.Second }
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	switch os.Args[1] {
+	case "technical-state":
+        err = technicalState(ctx, db, os.Args[2:])
+	case "hold-technical-confirm":
+		err = holdTechnicalConfirm(ctx, db, os.Args[2:])
+	case "witness":
+		err = provisionWitness(ctx, db, os.Args[2:])
+		if err == nil {
+			fmt.Println("PASS: separately pinned disposable core store HWM")
+		}
 	case "seed":
 		err = seed(ctx, db, os.Args[2:])
 		if err == nil {

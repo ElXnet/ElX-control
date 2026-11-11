@@ -55,10 +55,26 @@ func WitnessTranscript(w SignedStoreWitness) []byte {
 // cannot omit this set: it must match the exact local journal tombstones.
 // A pending drain without a local tombstone blocks paid admission (safe).
 func controlTombstoneDigest(ctx context.Context,db *sql.DB,nodeID string)(string,error) {
- rows,err:=db.QueryContext(ctx,`SELECT profile_id::text,MAX(generation)
-  FROM elx_session_owners
-  WHERE node_id=$1 AND profile_id IS NOT NULL
-  AND state IN ('draining','released')
+ rows,err:=db.QueryContext(ctx,`SELECT profile_id,MAX(generation)
+  FROM (
+    SELECT s.profile_id::text AS profile_id,s.generation
+      FROM elx_session_owners s
+      WHERE s.node_id=$1 AND s.profile_id IS NOT NULL
+        AND s.state IN ('draining','released')
+    UNION ALL
+    -- A queued Control-authorized RETIRE must reserve its immutable
+    -- tombstone even before the core confirms removal. Prior to core
+    -- persistence a mismatched witness denies leases (safe). Once the
+    -- core writes the tombstone, lost ACKs cannot strand renewals.
+    SELECT p.profile_id::text,o.profile_generation
+      FROM elx_technical_profiles p
+      JOIN elx_technical_profile_operations o ON o.profile_id=p.profile_id
+      WHERE p.node_id=$1 AND o.action='retire'
+        AND o.state IN ('INTENT','APPLIED')
+        AND o.profile_generation=p.profile_generation+1
+        AND o.authority_generation=p.authority_generation
+        AND o.policy_revision=p.policy_revision
+  ) denied
   GROUP BY profile_id ORDER BY profile_id`,nodeID)
  if err!=nil{return "",err}
  defer rows.Close()
@@ -100,6 +116,9 @@ func (s *server) witness(ctx context.Context,in *wrapperspb.BytesValue)(*wrapper
   }
  }
  if binding==nil || !validID(binding.ExecutorID){return nil,status.Error(codes.PermissionDenied,"witness node/executor not assigned")}
+ quarantined,quarantineErr:=journal.TechnicalNodeQuarantined(ctx,s.db,binding.Target.NodeID)
+ if quarantineErr!=nil{return nil,status.Error(codes.Unavailable,"operator quarantine ledger unavailable")}
+ if quarantined{return nil,status.Error(codes.PermissionDenied,"operator-quarantined technical node cannot renew a signed witness")}
  state,err:=journal.ReadCoreStoreWitness(ctx,s.db,binding.Target)
  if errors.Is(err,sql.ErrNoRows){return nil,status.Error(codes.FailedPrecondition,"independent Control HWM not provisioned")}
  if err!=nil{return nil,status.Error(codes.Unavailable,"Control HWM database unavailable")}
@@ -108,11 +127,24 @@ func (s *server) witness(ctx context.Context,in *wrapperspb.BytesValue)(*wrapper
   !validID(state.StoreID){
   return nil,status.Error(codes.FailedPrecondition,"Control witness epoch/store binding superseded")
  }
- // A witness cannot advertise grants while an unresolved command exists:
- // first require authenticated APPLIED receipt and atomic DB commit.
- if _,err:=journal.Pending(ctx,s.db,binding.Target);err==nil{
-  return nil,status.Error(codes.FailedPrecondition,"Control policy operation still unconfirmed")
- }else if !errors.Is(err,sql.ErrNoRows){
+ // The independent store witness attests the PREVIOUS committed core
+ // snapshot, never the pending rate move itself. Allow precisely one
+ // pending, durably budget-reserved next-revision rate move. Otherwise a
+ // scheduler raise deadlocks: the new signed ceiling is reserved, but the
+ // core cannot accept it without a fresh witness matching the still-old
+ // live revision. If that rate was already applied without an ACK, the core
+ // sees the old witness revision and independently rejects it (fail closed).
+ // Any unrelated pending mutation remains blocked.
+ if pending,pendingErr:=journal.Pending(ctx,s.db,binding.Target);pendingErr==nil {
+  reservedNextRate,err:=journal.PendingRateWitnessEligible(
+   ctx,s.db,binding.Target,pending.ID,binding.Epoch)
+  if err!=nil {
+   return nil,status.Error(codes.Unavailable,"pending rate witness eligibility unavailable")
+  }
+  if !reservedNextRate {
+   return nil,status.Error(codes.FailedPrecondition,"unconfirmed non-rate operation or divergent witness")
+  }
+ }else if !errors.Is(pendingErr,sql.ErrNoRows){
   return nil,status.Error(codes.Unavailable,"pending state unavailable")
  }
  nonce,err:=uuid.Parse(req.Nonce)

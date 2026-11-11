@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
@@ -28,6 +30,43 @@ func serveAgent(ctx context.Context, args []string) error {
 	}
 	if fs.NArg() != 0 || *interval < 200*time.Millisecond || *interval > time.Hour {
 		return errors.New("invalid agent polling interval")
+	}
+	technical := os.Getenv("ELX_AGENT_TECHNICAL_PREPARE")
+	if technical != "" && technical != "1" {
+		return errors.New("unsupported technical provisioning agent flag")
+	}
+	installEnabled := os.Getenv("ELX_AGENT_TECHNICAL_INSTALL")
+	if installEnabled != "" && installEnabled != "1" {
+		return errors.New("unsupported signed technical INSTALL agent flag")
+	}
+	if installEnabled == "1" && technical != "1" {
+		return errors.New("signed INSTALL requires independently pinned PREPARE mode")
+	}
+	retireEnabled := os.Getenv("ELX_AGENT_TECHNICAL_RETIRE")
+	if retireEnabled != "" && retireEnabled != "1" {
+		return errors.New("unsupported signed technical RETIRE agent flag")
+	}
+	if retireEnabled == "1" && technical != "1" {
+		return errors.New("signed RETIRE requires pinned managed technical agent authority")
+	}
+	recoveryEnabled := os.Getenv("ELX_AGENT_TECHNICAL_RECOVERY")
+	if recoveryEnabled != "" && recoveryEnabled != "1" {
+		return errors.New("unsupported technical lost-ACK recovery agent flag")
+	}
+	if recoveryEnabled == "1" && (technical != "1" || (installEnabled != "1" && retireEnabled != "1")) {
+		return errors.New("lost-ACK recovery requires explicit managed INSTALL or RETIRE mode")
+	}
+	var technicalPublicKey ed25519.PublicKey
+	if technical == "1" {
+		if os.Getenv("ELX_AGENT_MANAGED") != "1" ||
+			os.Getenv("ELX_AGENT_LEASE_REQUIRED") != "1" {
+			return errors.New("technical provisioning requires managed signed lease mode")
+		}
+		decoded, err := base64.StdEncoding.DecodeString(os.Getenv("ELXRAY_CONTROL_LEASE_PUBLIC_KEY"))
+		if err != nil || len(decoded) != ed25519.PublicKeySize {
+			return errors.New("technical provisioning requires pinned Control public key")
+		}
+		technicalPublicKey = ed25519.PublicKey(decoded)
 	}
 	if os.Getenv("ELX_AGENT_MANAGED") == "1" {
 		if os.Getenv("ELX_AGENT_LEASE_REQUIRED") != "1" ||
@@ -102,11 +141,125 @@ func serveAgent(ctx context.Context, args []string) error {
 			case codes.Unavailable, codes.DeadlineExceeded:
 				// Reconnect/retry on the next poll. Unknown outcome is safe:
 				// Control does not dequeue without a signed applied receipt.
-				fmt.Fprintln(os.Stderr, "ElX policy channel unavailable; will retry")
+				if os.Getenv("ELX_AGENT_E2E_DIAGNOSTICS") == "1" {
+					// Disposable CI harness only. Never print signed payloads,
+					// credentials or detailed Control errors by default.
+					fmt.Fprintln(os.Stderr, "ElX E2E pending policy operation:", status.Code(err), err)
+				} else {
+					fmt.Fprintln(os.Stderr, "ElX policy channel unavailable; will retry")
+				}
 			default:
 				// Malformed, unauthorized or mismatched policy evidence must
 				// stop the worker instead of silently re-trying indefinitely.
 				return fmt.Errorf("policy application failed closed: %w", err)
+			}
+		}
+		// Resolve any expired, independently proven terminal outcomes FIRST.
+		// This closes a lost-ACK INSTALL/RETIRE intent before PREPARE can
+		// encounter a legitimately progressed core state and block the agent.
+		// No original expired Control mutation is replayed by this step.
+		// Reconciliation is read-only: the core will sign only an already
+		// completed, durable technical operation. No expired Control job
+		// is replayed or transformed into a fresh authorization.
+		if recoveryEnabled == "1" {
+			bindings, loadErr := loadBindings()
+			if loadErr != nil {
+				return fmt.Errorf("technical recovery manifest unavailable: %w", loadErr)
+			}
+			recoveryCtx, done := context.WithTimeout(ctx, 30*time.Second)
+			recoveryErr := policytransport.ApplyTechnicalRecovery(recoveryCtx, conn, core, bindings)
+			done()
+			if ctx.Err() != nil { return nil }
+			if recoveryErr != nil {
+				switch status.Code(recoveryErr) {
+				case codes.NotFound:
+					// No expired Control technical operation is pending.
+				case codes.Unavailable, codes.DeadlineExceeded, codes.FailedPrecondition:
+					// No proof means no APPLIED and no owner/device release.
+					fmt.Fprintln(os.Stderr, "ElX technical recovery remains unresolved:", recoveryErr)
+				default:
+					return fmt.Errorf("technical recovery failed closed: %w", recoveryErr)
+				}
+			}
+		}
+		// Stage 4 prepares technical identities only. The same signed job
+		// remains in Control INTENT; no owner reservation or payload grant
+		// is inferred from this non-authorizing core readback.
+		if technical == "1" {
+			bindings, loadErr := loadBindings()
+			if loadErr != nil {
+				return fmt.Errorf("trusted technical profile manifest unavailable: %w", loadErr)
+			}
+			prepareCtx, prepareCancel := context.WithTimeout(ctx, 10*time.Second)
+			prepareErr := policytransport.ApplyTechnicalPreparation(
+				prepareCtx, conn, core, bindings, technicalPublicKey)
+			prepareCancel()
+			if ctx.Err() != nil {
+				return nil
+			}
+			if prepareErr != nil {
+				switch status.Code(prepareErr) {
+				case codes.NotFound:
+					// No approved technical reservation to prepare.
+				case codes.Unavailable, codes.DeadlineExceeded, codes.FailedPrecondition:
+					// No speculative ACK or traffic allowance. Retry after
+					// the lease and protected core journal become ready.
+					fmt.Fprintln(os.Stderr, "ElX technical preparation not yet confirmed; will retry:", prepareErr)
+				default:
+					return fmt.Errorf("technical profile preparation failed closed: %w", prepareErr)
+				}
+			}
+		}
+		// Signed v2 INSTALL is a separate opt-in from the non-admitting
+		// v1 PREPARE. APPLIED requires verified core-signed evidence on
+		// Control's PostgreSQL primary; a lost reply is never assumed safe.
+		if installEnabled == "1" {
+			bindings, err := loadBindings()
+			if err != nil {
+				return fmt.Errorf("technical INSTALL manifest unavailable: %w", err)
+			}
+			installCtx, done := context.WithTimeout(ctx, 15*time.Second)
+			err = policytransport.ApplyTechnicalInstall(
+				installCtx, conn, core, bindings, technicalPublicKey)
+			done()
+			if ctx.Err() != nil {
+				return nil
+			}
+			if err != nil {
+				switch status.Code(err) {
+				case codes.NotFound:
+					// No authoritative INSTALL intent on this executor.
+				case codes.Unavailable, codes.DeadlineExceeded, codes.FailedPrecondition:
+					// Never advance without a pinned Control confirmation.
+					fmt.Fprintln(os.Stderr, "ElX technical INSTALL requires reconciliation:", err)
+				default:
+					return fmt.Errorf("signed technical INSTALL failed closed: %w", err)
+				}
+			}
+		}
+		// Revocation is independently signed and the VLESS UUID is
+		// durably tombstoned before live deletion. A failed/lost receipt
+		// never frees a session slot or changes a paid rate grant.
+		if retireEnabled == "1" {
+			bindings, loadErr := loadBindings()
+			if loadErr != nil {
+				return fmt.Errorf("technical RETIRE manifest unavailable: %w", loadErr)
+			}
+			retireCtx, done := context.WithTimeout(ctx, 15*time.Second)
+			retireErr := policytransport.ApplyTechnicalRetire(
+				retireCtx, conn, core, bindings, technicalPublicKey)
+			done()
+			if ctx.Err() != nil { return nil }
+			if retireErr != nil {
+				switch status.Code(retireErr) {
+				case codes.NotFound:
+					// No approved revocation on this exact executor.
+				case codes.Unavailable, codes.DeadlineExceeded, codes.FailedPrecondition:
+					// Unknown result remains pending. Never reissue UUID.
+					fmt.Fprintln(os.Stderr, "ElX technical RETIRE requires reconciliation:", retireErr)
+				default:
+					return fmt.Errorf("signed technical RETIRE failed closed: %w", retireErr)
+				}
 			}
 		}
 		// Drain tasks are authorized and persisted centrally; the node never

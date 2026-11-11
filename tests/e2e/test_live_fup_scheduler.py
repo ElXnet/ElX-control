@@ -18,8 +18,9 @@ import threading
 import time
 
 from test_multinode import require, wait_for
-from test_lease_partition import LeasedLab, eventually_live, assert_denied
-from test_live_scheduler import fixture, wait_verified, saturate, await_redistribution
+from test_lease_partition import eventually_live, assert_denied
+from test_live_scheduler import (JournaledSchedulerLab, fixture,
+                                 wait_verified, saturate, await_redistribution)
 
 BLOCK = b"fup-traffic-" * 340  # 4080 bytes; well below socket payload limits
 
@@ -75,17 +76,9 @@ def run():
         failures = []
         busy = None
         try:
-            lab = LeasedLab(Path(temp))
+            lab = JournaledSchedulerLab(Path(temp))
             lab.echo.idle_timeout = 120
-            built = subprocess.run(
-                ["go", "build", "-o", str(lab.folder / "rate-scheduler-fixture"),
-                 "./tests/e2e/rate_scheduler_fixture"],
-                cwd=Path(__file__).resolve().parents[2],
-                env=lab.env(), capture_output=True, text=True,
-                timeout=120, check=False,
-            )
-            require(built.returncode == 0,
-                    f"fixture build error: {built.stderr[-1800:]}")
+            # The isolated lab compiled its own fixture before start/seed.
             lab.start()
             lab.seed()
             boots = [lab.usage(i)["Incarnation"] for i in range(2)]

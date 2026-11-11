@@ -118,6 +118,12 @@ func serveUsage(ctx context.Context, args []string) error {
 				switch status.Code(err) {
 				case codes.Unavailable, codes.DeadlineExceeded, codes.FailedPrecondition:
 					if *once { return err }
+					// The server's gRPC message is deliberately sanitized. Show
+					// it only in the disposable local acceptance lab so a
+					// failure can be attributed to challenge, core or SQL.
+					if os.Getenv("ELX_E2E_USAGE_DIAGNOSTICS") == "1" {
+						fmt.Fprintln(os.Stderr, "ELX_E2E_USAGE_POLL:", status.Code(err), status.Convert(err).Message())
+					}
 					fmt.Fprintln(os.Stderr, "ElX signed usage not accepted; retrying after next poll:", status.Code(err))
 				default:
 					return fmt.Errorf("signed usage collection stopped (fail closed): %w", err)
