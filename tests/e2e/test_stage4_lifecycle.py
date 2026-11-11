@@ -75,7 +75,7 @@ def wait_phase(lab, node, profile, phase, db_phase, operations):
 
 
 
-def assert_technical_uuid_denied(lab, node, profile):
+def assert_technical_uuid_denied(lab, node, profile, server_port=None):
     """An INSTALLED technical validator user is not an admitted owner.
 
     Use a SECOND VLESS client process with the new technical UUID rather than
@@ -86,6 +86,8 @@ def assert_technical_uuid_denied(lab, node, profile):
         (lab.folder / f"client-{node}.json").read_text(encoding="utf-8"))
     settings["inbounds"][0]["port"] = port
     settings["outbounds"][0]["settings"]["vnext"][0]["users"][0]["id"] = profile
+    if server_port is not None:
+        settings["outbounds"][0]["settings"]["vnext"][0]["port"] = server_port
     config = lab.folder / f"technical-client-{node}.json"
     config.write_text(json.dumps(settings), encoding="utf-8")
     name = f"technical-client{node}"
@@ -199,6 +201,40 @@ def run():
                 assert_denied(lab, i)
             print("PASS: two signed RETIREs, permanent tombstones, independent "
                   "PostgreSQL proof and unchanged paid slots/rate", flush=True)
+            # Replacement never reuses the retired effective UUID. The old
+            # technical email is reusable only after core-signed RETIRE was
+            # durably committed; the newly prepared UUID remains non-admitting.
+            fresh = [str(uuid.uuid4()) for _ in range(2)]
+            for i in range(2):
+                original = bytearray(uuid.UUID(profiles[i]).bytes)
+                original[6] ^= 0x40
+                original[7] ^= 0x7f
+                forbidden_alias = str(uuid.UUID(bytes=bytes(original)))
+                now = int(time.time())
+                command([
+                    lab.control, "enqueue-technical-profile",
+                    "-node", lab.node_ids[i], "-resource", lab.resource_id,
+                    "-profile", forbidden_alias, "-operation", str(uuid.uuid4()),
+                    "-entitlement", lab.entitlement, "-email", emails[i],
+                    "-inbound", tags[i], "-core-revision", "2",
+                    "-not-before", str(now - 1), "-not-after", str(now + 50),
+                ], env=lab.env(), success=False)
+                enqueue(lab, "prepare", i, fresh[i], emails[i], tags[i])
+            for i in range(2):
+                wait_phase(lab, i, fresh[i], "PREPARED", "prepared",
+                           {"prepare": "INTENT"})
+                enqueue(lab, "install", i, fresh[i], emails[i], tags[i])
+            for i in range(2):
+                wait_phase(lab, i, fresh[i], "INSTALLED", "installed",
+                           {"prepare": "APPLIED", "install": "APPLIED"})
+                old_disk, old_denied = journal_state(lab, i, profiles[i])
+                require(old_disk["phase"] == "RETIRED" and old_denied.get(profiles[i]) == 2,
+                        "new signed UUID resurrected an old retired identity")
+                assert_technical_uuid_denied(lab, i, fresh[i])
+                assert_technical_uuid_denied(lab, i, profiles[i])
+            print("PASS: signed fresh-UUID re-provisioning on both cores "
+                  "preserves permanent old tombstones and owner-slot/rate budget", flush=True)
+
         except BaseException:
             if lab is not None:
                 for path in sorted(Path(temp).glob("*.log")):

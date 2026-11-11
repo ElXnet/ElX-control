@@ -162,3 +162,27 @@ retries so a finished, unacknowledged installation is reconciled first.
 No real PostgreSQL instance or production API accepts the test helper.
 CI on the exact new head is **PENDING**; this does not close the separate
 RETIRED lost-ACK, interrupted-operation, alias/rotation, or hot-reload gates.
+
+## Stage-4 hardening batch — 2026-11-11 (NOT YET PUSHED/VERIFIED)
+
+The paired core adds a global normalized-UUID preflight for signed INSTALL
+across every running VLESS inbound. A foreign static UUID alias, exact UUID
+in a different inbound, target email collision or malformed validator
+refuses installation before writing INSTALLING. A second all-inbound snapshot
+must match exactly one live installed user before INSTALLED is persisted,
+and signed retire/read-only recovery refuse shadow aliases.
+This does NOT turn a prepared/installed technical UUID into admitted VPN traffic.
+
+Control's independent signed store witness previously omitted technical
+RETIRE tombstones (it considered only session-owner drain generations).
+It now includes the maximum persisted denial generation from both session
+owners and durable Control RETIRE intents, including still-INTENT lost ACKs.
+A lease before the core commits the corresponding tombstone is intentionally
+refused; after the core records it, the independent HWM must agree.
+Fresh-UUID re-provisioning under the same email follows a signed RETIRE,
+never a reused old effective UUID, owner slot or budget grant.
+
+New mandatory tests: real two-core cross-inbound shadow INSTALL denial;
+replacement on both real cores; isolated PostgreSQL witness digest regression.
+All tests run only on disposable local resources. This batch is pending
+exact paired-head CI; do not assert PASS, merge, or deploy yet.
