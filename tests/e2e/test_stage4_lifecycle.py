@@ -15,7 +15,7 @@ import tempfile
 import time
 import uuid
 
-from test_multinode import command, require, wait_for
+from test_multinode import available_ports, command, read_exact, require, wait_for
 from test_lease_partition import assert_denied
 from test_live_scheduler import JournaledSchedulerLab, fixture
 from stage4_workspace import ensure_disposable_technical_inbound_tag
@@ -73,6 +73,50 @@ def wait_phase(lab, node, profile, phase, db_phase, operations):
                     check, lab.processes, timeout=35)
 
 
+
+def assert_technical_uuid_denied(lab, node, profile):
+    """An INSTALLED technical validator user is not an admitted owner.
+
+    Use a SECOND VLESS client process with the new technical UUID rather than
+    testing only the legacy static account used by assert_denied().
+    """
+    port = available_ports(1)[0]
+    settings = json.loads(
+        (lab.folder / f"client-{node}.json").read_text(encoding="utf-8"))
+    settings["inbounds"][0]["port"] = port
+    settings["outbounds"][0]["settings"]["vnext"][0]["users"][0]["id"] = profile
+    config = lab.folder / f"technical-client-{node}.json"
+    config.write_text(json.dumps(settings), encoding="utf-8")
+    name = f"technical-client{node}"
+    lab.spawn(name, [lab.core, "run", "-c", config], env=lab.env())
+    try:
+        def ready():
+            with socket.create_connection(("127.0.0.1", port), timeout=0.7):
+                return True
+        wait_for(f"dedicated technical VLESS client {node}", ready, lab.processes)
+        with socket.create_connection(("127.0.0.1", port), timeout=2) as sock:
+            sock.settimeout(2)
+            sock.sendall(bytes.fromhex("050100"))
+            require(read_exact(sock, 2) == bytes.fromhex("0500"),
+                    "local dedicated technical SOCKS proxy was not ready")
+            sock.sendall(bytes.fromhex("050100017f000001")
+                         + lab.destination.to_bytes(2, "big"))
+            response = read_exact(sock, 10)
+            if response[:2] == bytes.fromhex("0500"):
+                marker = b"elx-technical-uuid-must-deny-without-owner"
+                try:
+                    sock.sendall(marker)
+                    echo = read_exact(sock, len(marker))
+                except (OSError, socket.timeout):
+                    echo = b""
+                require(echo != marker,
+                        "unowned technical VLESS UUID transmitted VPN payload")
+        require(lab.processes[name].poll() is None,
+                "technical VLESS denial was inconclusive because its client crashed")
+    finally:
+        lab.stop(name)
+
+
 def run():
     for key in ("ELXRAY_BIN", "ELX_CONTROL_BIN", "ELX_CONTROL_POSTGRES_DSN"):
         require(os.environ.get(key), f"missing {key}")
@@ -124,6 +168,7 @@ def run():
                                      {"prepare": "APPLIED", "install": "APPLIED"})
                 require(disk.get("installOperationId"),
                         "missing durable core VLESS INSTALL identity")
+                assert_technical_uuid_denied(lab, i, profiles[i])
                 assert_denied(lab, i)
             print("PASS: two real VLESS INSTALLs and independent PostgreSQL "
                   "core-signed APPLIED confirmations", flush=True)
@@ -136,6 +181,7 @@ def run():
                     {"prepare": "APPLIED", "install": "APPLIED", "retire": "APPLIED"})
                 require(disk.get("retireGeneration") == 2 and denied.get(profiles[i]) == 2,
                         "durable permanent effective VLESS UUID tombstone missing")
+                assert_technical_uuid_denied(lab, i, profiles[i])
                 assert_denied(lab, i)
             print("PASS: two signed RETIREs, permanent tombstones, independent "
                   "PostgreSQL proof and unchanged paid slots/rate", flush=True)
