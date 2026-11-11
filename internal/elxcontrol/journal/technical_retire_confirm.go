@@ -46,6 +46,7 @@ func ConfirmTechnicalRetired(ctx context.Context, db *sql.DB, proof corepolicy.R
 	    JOIN elx_operation_targets t ON t.node_id=p.node_id AND t.resource_id=p.resource_id
 	    WHERE o.operation_id=$1 AND o.profile_id=$2 AND o.action='retire'
 	      AND p.node_id=$3 AND p.resource_id=$4 AND p.executor_id=$5
+	      AND NOT EXISTS (SELECT 1 FROM elx_technical_node_quarantines q WHERE q.node_id=p.node_id)
 	      AND o.profile_generation=p.profile_generation+1
 	      AND o.authority_generation=p.authority_generation
 	      AND o.policy_revision=p.policy_revision
@@ -64,6 +65,18 @@ func ConfirmTechnicalRetired(ctx context.Context, db *sql.DB, proof corepolicy.R
 			&digest, &storeID, &boot, &key)
 	if errors.Is(err, sql.ErrNoRows) { return ErrProfileAuthority }
 	if err != nil { return err }
+	// Quarantine is a permanent administrative fence, not a core proof.
+	// The locked profile/operation serializes this check with incident
+	// registration, preventing a late ACK from erasing uncertainty.
+	var frozen bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (
+		SELECT 1 FROM elx_technical_node_quarantines WHERE node_id=$1)`,
+		nodeID).Scan(&frozen); err != nil {
+		return err
+	}
+	if frozen {
+		return ErrProfileAuthority
+	}
 	if generation != 2 || authority <= 0 || revision <= 0 ||
 		(state != "INTENT" && state != "APPLIED") {
 		return ErrProfileAuthority

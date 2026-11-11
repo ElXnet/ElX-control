@@ -55,6 +55,7 @@ func ConfirmTechnicalInstalled(ctx context.Context, db *sql.DB,
 	      AND o.authority_generation=p.authority_generation
 	      AND o.policy_revision=p.policy_revision
 	      AND p.node_id=$3 AND p.resource_id=$4 AND p.executor_id=$5
+	      AND NOT EXISTS (SELECT 1 FROM elx_technical_node_quarantines q WHERE q.node_id=p.node_id)
 	      AND w.executor_id=p.executor_id AND NOT c.revoked
 	      AND g.epoch=p.authority_generation AND w.authority_generation=p.authority_generation
 	      AND w.core_revision=p.policy_revision AND t.revision+1=p.policy_revision
@@ -75,6 +76,17 @@ func ConfirmTechnicalInstalled(ctx context.Context, db *sql.DB,
 	}
 	if err != nil {
 		return err
+	}
+	// The same locked operation/profile row serializes operator quarantine
+	// against a late signed ACK; a frozen incident can never be APPLIED.
+	var frozen bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (
+		SELECT 1 FROM elx_technical_node_quarantines WHERE node_id=$1)`,
+		nodeID).Scan(&frozen); err != nil {
+		return err
+	}
+	if frozen {
+		return ErrProfileAuthority
 	}
 	if gen != 1 || epoch <= 0 || revision <= 0 || phase == "retired" ||
 		(state != "INTENT" && state != "APPLIED") {

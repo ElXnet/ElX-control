@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/ElXnet/ElX-control/internal/elxcontrol/journal"
 )
 
 // TechnicalRecoveryAuditRow is an operator-only, read-only projection of
@@ -30,6 +31,7 @@ type TechnicalRecoveryAuditRow struct {
 
 type TechnicalRecoveryAudit struct {
 	NodeID string `json:"nodeId"`
+	NodeQuarantined bool `json:"nodeQuarantined"`
 	Pending []TechnicalRecoveryAuditRow `json:"pending"`
 	// Capacity/owner release is never implied by an inspection.
 	AuthorizedMutation bool `json:"authorizedMutation"`
@@ -71,6 +73,10 @@ func inspectTechnicalRecoveryTo(ctx context.Context, db *sql.DB, args []string, 
 	}
 	queryCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
+	quarantined, err := journal.TechnicalNodeQuarantined(queryCtx, db, node.String())
+	if err != nil {
+		return fmt.Errorf("technical quarantine ledger unavailable: %w", err)
+	}
 	rows, err := db.QueryContext(queryCtx, `SELECT
 		o.operation_id::text,p.profile_id::text,p.resource_id::text,p.executor_id::text,
 		o.action,p.state,o.not_after,
@@ -84,7 +90,8 @@ func inspectTechnicalRecoveryTo(ctx context.Context, db *sql.DB, args []string, 
 	}
 	defer rows.Close()
 	report := TechnicalRecoveryAudit{NodeID: node.String(),
-		Pending: make([]TechnicalRecoveryAuditRow, 0), AuthorizedMutation: false}
+		Pending: make([]TechnicalRecoveryAuditRow, 0),
+		NodeQuarantined: quarantined, AuthorizedMutation: false}
 	for rows.Next() {
 		var item TechnicalRecoveryAuditRow
 		if err := rows.Scan(&item.OperationID,&item.ProfileID,
@@ -96,6 +103,9 @@ func inspectTechnicalRecoveryTo(ctx context.Context, db *sql.DB, args []string, 
 			return errors.New("invalid technical recovery identity or ledger phase")
 		}
 		item.NextStep = technicalRecoveryNextStep(item.Action,item.ControlPhase,item.Expired)
+		if quarantined {
+			item.NextStep = "operator_quarantined_node_decommission_review"
+		}
 		report.Pending = append(report.Pending,item)
 		if len(report.Pending) > 128 {
 			return errors.New("too many unresolved technical operations: narrow scope or review backlog before recovery")

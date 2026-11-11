@@ -1,11 +1,8 @@
 package journal
 
 import (
-	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
-	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -98,9 +95,5 @@ func TestOperatorQuarantineDoesNotForgeTechnicalAppliedOrReleaseCapacity(t *test
 		rateUp!=250000||rateDown!=250000||slots!=2 {
 		t.Fatalf("quarantine fabricated APPLIED or released purchased rights: %s/%s %d/%d %d",original,operationState,rateUp,rateDown,slots)
 	}
-	// An unresolved operator quarantine is a one-way administrative fence.
-	// No successful reconciliation is forged by this command.
-	_ = context.Canceled
-	_ = sql.ErrNoRows
-	_ = errors.Is
+	// No success receipt is generated: Control still retains its INTENT.
 }

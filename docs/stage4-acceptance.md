@@ -204,3 +204,28 @@ alias after the original profile was signed-RETIRED and re-provisioned with
 a fresh UUID. Managed core startup may refuse or the live data plane must
 deny both stale and new VLESS traffic without device owner proof.
 CI still NOT RUN on this staged exact paired head.
+
+## 2026-11-11: durable operator-quarantined incident (new, not CI-verified)
+
+Migration 027 adds an irreversible Control node quarantine record bound to
+the exact unresolved technical `INTENT`, original operation/profile,
+independently pinned store ID and a SHA-256 digest of an archived offline
+inspection. An administrator must first isolate the physical node and
+archive journal+anchor and the separate Control store witness, then invoke
+`elx-control quarantine-technical-node` with matching
+`--node --resource --profile --operation --store --phase --evidence-sha256
+--operator --confirm-node --physically-fenced`.
+The operation is **not** a core proof: it never promotes an uncertain
+INSTALL/RETIRE to APPLIED, releases purchased capacity, reuses the UUID or
+permits VPN payload. Exact retries are idempotent; conflicting incident
+data is rejected. A quarantined node cannot receive a new Control-signed
+store witness, technical grants, installs, retires or automatic recovery
+deliveries; signed confirmation paths also refuse the frozen operation.
+The inspection API reports `nodeQuarantined` and directs operator review.
+
+This is a fail-closed safety state, not a distributed proof that the node is
+physically off. The CLI acknowledgement cannot replace external fencing,
+revocation of cached leases, backed-up evidence or audited authority.
+Definitive replacement/rebootstrap under a NEW store and independent
+node identity still requires explicit decommission design and tests.
+No production deployment is authorized. Exact paired-head CI pending.
