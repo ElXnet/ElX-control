@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ElXnet/ElX-control/internal/elxcontrol/journal"
@@ -238,8 +240,46 @@ func technicalState(ctx context.Context, db *sql.DB, args []string) error {
 	return json.NewEncoder(os.Stdout).Encode(s)
 }
 
+
+// holdTechnicalConfirm is a disposable fault-injection lab process.
+// It holds only the exact already-queued SQL operation row, preventing the
+// Control proof ACK transaction from committing. It never forges a core
+// receipt, mutates a VLESS user, changes a grant, or touches any live DB.
+// Killing the helper releases the lock and closes its transaction.
+func holdTechnicalConfirm(ctx context.Context, db *sql.DB, args []string) error {
+	if os.Getenv("ELX_STAGE4_E2E_DISPOSABLE") != "1" ||
+		len(args) != 2 || !canonical(args[0]) {
+		return errors.New("hold-technical-confirm requires disposable operation UUID and ready path")
+	}
+	ready := filepath.Clean(args[1])
+	if !filepath.IsAbs(ready) || !strings.HasPrefix(filepath.Base(filepath.Dir(ready)), "elx-live-scheduler-e2e-") ||
+		filepath.Base(ready) != "technical-ack-lock.ready" {
+		return errors.New("refusing non-disposable technical confirmation fault marker")
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var locked string
+	if err := tx.QueryRowContext(ctx,`SELECT operation_id::text
+		FROM elx_technical_profile_operations
+		WHERE operation_id=$1 AND action IN ('install','retire')
+		  AND state='INTENT' FOR UPDATE`, args[0]).Scan(&locked); err != nil {
+		return err
+	}
+	if locked != args[0] {
+		return errors.New("technical confirmation lock selected another operation")
+	}
+	if err := os.WriteFile(ready, []byte("locked\n"), 0o600); err != nil {
+		return err
+	}
+	<-ctx.Done()
+	return ctx.Err() // no commit; stop/timeout ALWAYS rolls back
+}
+
 func main() {
-	if len(os.Args) < 3 || (os.Args[1] != "seed" && os.Args[1] != "witness" && os.Args[1] != "inspect" && os.Args[1] != "arm-fup" && os.Args[1] != "fup-state" && os.Args[1] != "technical-state") {
+	if len(os.Args) < 3 || (os.Args[1] != "seed" && os.Args[1] != "witness" && os.Args[1] != "inspect" && os.Args[1] != "arm-fup" && os.Args[1] != "fup-state" && os.Args[1] != "technical-state" && os.Args[1] != "hold-technical-confirm") {
 		fmt.Fprintln(os.Stderr, "usage: rate-scheduler-fixture seed <10 args> | witness <node resource executor store> | inspect|arm-fup|fup-state <entitlement>")
 		os.Exit(2)
 	}
@@ -258,11 +298,15 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	timeout := 15*time.Second
+	if os.Args[1] == "hold-technical-confirm" { timeout = 90*time.Second }
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	switch os.Args[1] {
 	case "technical-state":
         err = technicalState(ctx, db, os.Args[2:])
+	case "hold-technical-confirm":
+		err = holdTechnicalConfirm(ctx, db, os.Args[2:])
 	case "witness":
 		err = provisionWitness(ctx, db, os.Args[2:])
 		if err == nil {
