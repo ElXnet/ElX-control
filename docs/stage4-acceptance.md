@@ -229,3 +229,16 @@ revocation of cached leases, backed-up evidence or audited authority.
 Definitive replacement/rebootstrap under a NEW store and independent
 node identity still requires explicit decommission design and tests.
 No production deployment is authorized. Exact paired-head CI pending.
+
+### Quarantine invariants
+
+Migration 027 forbids UPDATE and DELETE of the incident record via a
+PostgreSQL trigger. It also rejects a second incident with a changed
+operation, profile, store or evidence hash. This is a permanent **fencing**
+record, not a reversible status toggle. In particular, an incident with a
+remaining `INTENT` is not automatically converted into `APPLIED` after
+restarting a core, and the original UUID must never be reused.
+
+External isolation **precedes** the CLI action. A string flag claiming
+`--physically-fenced` is an administrative acknowledgement, NOT an
+attestation that a remote VPS has been disconnected.

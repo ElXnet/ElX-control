@@ -18,3 +18,16 @@ CREATE TABLE elx_technical_node_quarantines (
 );
 CREATE INDEX elx_technical_quarantine_resource
     ON elx_technical_node_quarantines(node_id,resource_id);
+
+-- The application must never convert the incident to an active node by
+-- rewriting/deleting this record. Decommissioning requires new identity,
+-- external fencing evidence and an explicitly audited separate procedure.
+CREATE FUNCTION elx_reject_technical_quarantine_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'technical node quarantine is immutable';
+END
+$$;
+CREATE TRIGGER elx_technical_quarantine_no_rewrite
+BEFORE UPDATE OR DELETE ON elx_technical_node_quarantines
+FOR EACH ROW EXECUTE FUNCTION elx_reject_technical_quarantine_mutation();

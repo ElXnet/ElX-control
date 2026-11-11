@@ -95,5 +95,14 @@ func TestOperatorQuarantineDoesNotForgeTechnicalAppliedOrReleaseCapacity(t *test
 		rateUp!=250000||rateDown!=250000||slots!=2 {
 		t.Fatalf("quarantine fabricated APPLIED or released purchased rights: %s/%s %d/%d %d",original,operationState,rateUp,rateDown,slots)
 	}
+	// Even a future accidental administrative UPDATE/DELETE must fail.
+	if _, err := db.ExecContext(ctx, `UPDATE elx_technical_node_quarantines
+		SET operator_ref='overwritten' WHERE node_id=$1`, node); err == nil {
+		t.Fatal("operator incident row was mutable")
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM elx_technical_node_quarantines
+		WHERE node_id=$1`, node); err == nil {
+		t.Fatal("operator quarantine was removable")
+	}
 	// No success receipt is generated: Control still retains its INTENT.
 }
