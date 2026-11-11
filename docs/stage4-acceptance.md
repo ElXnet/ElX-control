@@ -242,3 +242,32 @@ restarting a core, and the original UUID must never be reused.
 External isolation **precedes** the CLI action. A string flag claiming
 `--physically-fenced` is an administrative acknowledgement, NOT an
 attestation that a remote VPS has been disconnected.
+
+### Emergency operator workflow (no automatic unquarantine)
+
+1. Externally isolate the VPS/network/listeners **before** invoking the
+   command. Confirm no second core instance owns the old durable store.
+2. Use the existing read-only Control
+   `inspect-technical-recovery NODE_UUID` to identify the original INTENT;
+   retrieve expected `store_id` from independent Control witness records.
+3. On an isolated copy of the stopped ElXray node run
+   `elx-technical-inspect -journal /absolute/operations.json
+   -policy-state /absolute/policy.json -expect-store STORE_UUID
+   -profile PROFILE_UUID -operation OP_UUID`.
+   Retain its output and the associated journal, anchor, lock, configuration
+   and separate Control evidence. Verify the report says INSTALLING or
+   RETIRING, and compute its SHA-256.
+4. On the **privileged Control master**, with the node still physically
+   fenced, run `elx-control quarantine-technical-node` with
+   `--node NODE_UUID --resource RESOURCE_UUID --profile PROFILE_UUID
+   --operation OP_UUID --store STORE_UUID --phase INSTALLING
+   --evidence-sha256 HEX --operator AUDIT_REFERENCE
+   --confirm-node NODE_UUID --physically-fenced`. Replace INSTALLING
+   with RETIRING if and only if that was the verified offline phase.
+5. Keep the old node/store permanently fenced. This is NOT a safe
+   reactivation/replacement procedure; no old UUID/lease/slot is restored.
+   The command's success means only that the central quarantine record
+   was inserted, not that physical isolation was independently attested.
+
+Do not call it on a running/uncertain remote host, do not delete SQL rows
+manually, and do not change the original signed INTENT to APPLIED.
