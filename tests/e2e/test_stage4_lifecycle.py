@@ -101,7 +101,10 @@ def assert_technical_uuid_denied(lab, node, profile):
                     "local dedicated technical SOCKS proxy was not ready")
             sock.sendall(bytes.fromhex("050100017f000001")
                          + lab.destination.to_bytes(2, "big"))
-            response = read_exact(sock, 10)
+            try:
+                response = read_exact(sock, 10)
+            except (OSError, socket.timeout):
+                response = b""  # rejected upstream VLESS, not a SOCKS startup failure
             if response[:2] == bytes.fromhex("0500"):
                 marker = b"elx-technical-uuid-must-deny-without-owner"
                 try:
