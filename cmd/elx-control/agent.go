@@ -154,6 +154,34 @@ func serveAgent(ctx context.Context, args []string) error {
 				return fmt.Errorf("policy application failed closed: %w", err)
 			}
 		}
+		// Resolve any expired, independently proven terminal outcomes FIRST.
+		// This closes a lost-ACK INSTALL/RETIRE intent before PREPARE can
+		// encounter a legitimately progressed core state and block the agent.
+		// No original expired Control mutation is replayed by this step.
+		// Reconciliation is read-only: the core will sign only an already
+		// completed, durable technical operation. No expired Control job
+		// is replayed or transformed into a fresh authorization.
+		if recoveryEnabled == "1" {
+			bindings, loadErr := loadBindings()
+			if loadErr != nil {
+				return fmt.Errorf("technical recovery manifest unavailable: %w", loadErr)
+			}
+			recoveryCtx, done := context.WithTimeout(ctx, 30*time.Second)
+			recoveryErr := policytransport.ApplyTechnicalRecovery(recoveryCtx, conn, core, bindings)
+			done()
+			if ctx.Err() != nil { return nil }
+			if recoveryErr != nil {
+				switch status.Code(recoveryErr) {
+				case codes.NotFound:
+					// No expired Control technical operation is pending.
+				case codes.Unavailable, codes.DeadlineExceeded, codes.FailedPrecondition:
+					// No proof means no APPLIED and no owner/device release.
+					fmt.Fprintln(os.Stderr, "ElX technical recovery remains unresolved:", recoveryErr)
+				default:
+					return fmt.Errorf("technical recovery failed closed: %w", recoveryErr)
+				}
+			}
+		}
 		// Stage 4 prepares technical identities only. The same signed job
 		// remains in Control INTENT; no owner reservation or payload grant
 		// is inferred from this non-authorizing core readback.
@@ -231,30 +259,6 @@ func serveAgent(ctx context.Context, args []string) error {
 					fmt.Fprintln(os.Stderr, "ElX technical RETIRE requires reconciliation:", retireErr)
 				default:
 					return fmt.Errorf("signed technical RETIRE failed closed: %w", retireErr)
-				}
-			}
-		}
-		// Reconciliation is read-only: the core will sign only an already
-		// completed, durable technical operation. No expired Control job
-		// is replayed or transformed into a fresh authorization.
-		if recoveryEnabled == "1" {
-			bindings, loadErr := loadBindings()
-			if loadErr != nil {
-				return fmt.Errorf("technical recovery manifest unavailable: %w", loadErr)
-			}
-			recoveryCtx, done := context.WithTimeout(ctx, 30*time.Second)
-			recoveryErr := policytransport.ApplyTechnicalRecovery(recoveryCtx, conn, core, bindings)
-			done()
-			if ctx.Err() != nil { return nil }
-			if recoveryErr != nil {
-				switch status.Code(recoveryErr) {
-				case codes.NotFound:
-					// No expired Control technical operation is pending.
-				case codes.Unavailable, codes.DeadlineExceeded, codes.FailedPrecondition:
-					// No proof means no APPLIED and no owner/device release.
-					fmt.Fprintln(os.Stderr, "ElX technical recovery remains unresolved:", recoveryErr)
-				default:
-					return fmt.Errorf("technical recovery failed closed: %w", recoveryErr)
 				}
 			}
 		}
