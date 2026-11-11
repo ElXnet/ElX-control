@@ -30,7 +30,8 @@ def database_state(lab, node, profile):
     return json.loads(fixture(lab, "technical-state", profile, lab.node_ids[node]))
 
 
-def enqueue(lab, action, node, profile, email, tag):
+def enqueue(lab, action, node, profile, email, tag, ttl=56):
+    require(2 <= ttl <= 56, "technical signed job must have a bounded expiry")
     now = int(time.time())
     op = str(uuid.uuid4())
     args = [
@@ -38,7 +39,7 @@ def enqueue(lab, action, node, profile, email, tag):
         "-node", lab.node_ids[node], "-resource", lab.resource_id,
         "-profile", profile, "-operation", op, "-entitlement", lab.entitlement,
         "-email", email, "-inbound", tag, "-core-revision", "2",
-        "-not-before", str(now - 1), "-not-after", str(now + 56),
+        "-not-before", str(now - 1), "-not-after", str(now + ttl),
     ]
     if action != "prepare":
         args.extend(["-flow", ""])
