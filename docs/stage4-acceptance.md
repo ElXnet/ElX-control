@@ -62,6 +62,12 @@ With access to the Control primary PostgreSQL, an operator may run:
 elx-control inspect-technical-recovery <canonical-node-uuid>
 ```
 
+A PostgreSQL integration test runs the operator inspection against a
+disposable isolated schema through a **read-only** database connection.
+It confirms node-scoped INTENT selection, expired/future classification,
+redacted output, preservation of the original operation states, and
+fail-closed behavior for an over-128 backlog (no partial JSON).
+
 This produces a bounded JSON view of up to 128 central `INTENT`
 PREPARE/INSTALL/RETIRE operations. It includes operation/profile/resource/
 executor UUIDs, Control phase, grant expiry and a **suggested investigation

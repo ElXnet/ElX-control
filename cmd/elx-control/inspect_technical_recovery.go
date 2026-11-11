@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -55,7 +56,13 @@ func technicalRecoveryNextStep(action, phase string, expired bool) string {
 // PostgreSQL authority directly, never asks a node to replay a stale command.
 // The output intentionally omits emails, secret keys and profile payload.
 func inspectTechnicalRecovery(ctx context.Context, db *sql.DB, args []string) error {
-	if db == nil || len(args) != 1 {
+	return inspectTechnicalRecoveryTo(ctx, db, args, os.Stdout)
+}
+
+// inspectTechnicalRecoveryTo accepts a writer for real PostgreSQL read-only
+// acceptance testing. No node-side operation is replayed by this function.
+func inspectTechnicalRecoveryTo(ctx context.Context, db *sql.DB, args []string, output io.Writer) error {
+	if db == nil || output == nil || len(args) != 1 {
 		return errors.New("usage: elx-control inspect-technical-recovery <node-uuid>")
 	}
 	node, err := uuid.Parse(args[0])
@@ -97,7 +104,7 @@ func inspectTechnicalRecovery(ctx context.Context, db *sql.DB, args []string) er
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("technical recovery ledger interrupted: %w", err)
 	}
-	return json.NewEncoder(os.Stdout).Encode(report)
+	return json.NewEncoder(output).Encode(report)
 }
 
 func validRecoveryAuditRow(v TechnicalRecoveryAuditRow) bool {
