@@ -146,7 +146,17 @@ def run():
             # genuine Control-applied signed policy to pin the incarnation
             # BEFORE accepting any signed technical VLESS result.
             for i in range(2):
-                lab.enqueue(i, 0, 250000, 250000)
+                # Rate-budget-managed targets must use the transactionally
+                # reserved queue-rate-move path, never enqueue-policy.
+                moved = command([
+                    lab.control, "queue-rate-move",
+                    "-entitlement", lab.entitlement,
+                    "-node", lab.node_ids[i], "-resource", lab.resource_id,
+                    "-operation", str(uuid.uuid4()), "-expected", "0",
+                    "-up", "250000", "-down", "250000",
+                ], env=lab.env())
+                require(json.loads(moved.stdout)["revision"] == 1,
+                        "signed rate budget baseline was not durably queued")
                 lab.start_agent(i)
             for i in range(2):
                 lab.await_revision(i, 2)
