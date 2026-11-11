@@ -88,7 +88,8 @@ export TMPDIR="$work"
     python3 scripts/elx-vless-stop-smoke.py
     python3 -m py_compile tests/e2e/test_multinode.py tests/e2e/test_lease_partition.py \
         tests/e2e/stage4_workspace.py tests/e2e/test_stage4_workspace.py \
-        tests/e2e/test_live_scheduler.py tests/e2e/test_live_fup_scheduler.py
+        tests/e2e/test_live_scheduler.py tests/e2e/test_live_fup_scheduler.py \
+        tests/e2e/test_stage4_static_bypass.py
     python3 tests/e2e/test_multinode.py
     python3 tests/e2e/test_rate_partition.py
     # Managed production mode requires a different Unix UID for the node agent.
@@ -103,6 +104,7 @@ export TMPDIR="$work"
     export ELX_E2E_USAGE_DIAGNOSTICS=1
     managed_suites=(
         tests/e2e/test_lease_partition.py
+        tests/e2e/test_stage4_static_bypass.py
         tests/e2e/test_live_scheduler.py
         tests/e2e/test_live_fup_scheduler.py
     )

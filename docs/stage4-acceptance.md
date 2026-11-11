@@ -96,6 +96,21 @@ INTENT is never inferred to be APPLIED. This corrects the earlier
 "matching Stage-4 ElXray module is required" fixture failure, NOT
 the still-unproven two-core reduce/barrier/raise E2E scenario.
 
+## Two-real-core static-JSON admission regression
+
+The disposable \`test_stage4_static_bypass.py\` exercises two real
+managed ElXray nodes with protected Unix peer credentials and PostgreSQL
+Control lease agents. It checks that the *preconfigured* VLESS JSON
+identities remain non-admitting when Stage-4 technical provisioning is
+enabled, before and after signed lease delivery. It then restarts node
+zero with the same static configuration and journal: restart may
+conclusively fail closed, or succeed with continued payload denial.
+A live unsigned or orphan connection is never counted as acceptance.
+
+This is a deliberately negative test, not proof that owner/device
+authorization exists. It does not substitute for positive signed
+PREPARE/INSTALL/RETIRE proof or live hot reload/multi-inbound alias tests.
+
 ## Real implementation gaps before TESTING
 
 1. Make interrupted `INSTALLING` / `RETIRING` recoverable by a safe,
