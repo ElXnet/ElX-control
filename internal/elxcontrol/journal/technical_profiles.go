@@ -95,6 +95,7 @@ func QueueTechnicalProfile(ctx context.Context, db *sql.DB,
 	    JOIN elx_core_store_witnesses w USING(node_id,resource_id)
 	    JOIN elx_entitlements e ON e.id=g.entitlement_id
 	    WHERE g.node_id=$1 AND g.resource_id=$2 AND g.entitlement_id=$3
+	    AND NOT EXISTS (SELECT 1 FROM elx_technical_node_quarantines q WHERE q.node_id=g.node_id)
 	    AND e.enabled=true AND e.valid_until>clock_timestamp()
 	    FOR UPDATE OF g,t,w`,
 		g.NodeID, g.ResourceID, r.EntitlementID).
@@ -221,6 +222,7 @@ func NextTechnicalProfile(ctx context.Context, db *sql.DB,
 	    JOIN elx_core_store_witnesses w ON w.node_id=p.node_id AND w.resource_id=p.resource_id
 	    JOIN elx_entitlements e ON e.id=p.entitlement_id
 	    WHERE p.node_id=$1 AND p.resource_id=$2 AND p.executor_id=$3
+	      AND NOT EXISTS (SELECT 1 FROM elx_technical_node_quarantines q WHERE q.node_id=p.node_id)
 	      AND p.subscription_id=$4 AND p.state='prepared'
 	      AND o.state='INTENT' AND o.action='prepare'
 	      AND o.profile_generation=p.profile_generation

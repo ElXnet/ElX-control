@@ -55,6 +55,7 @@ func (s *server) nextTechnicalRecovery(ctx context.Context,
 		      ON g.node_id=p.node_id AND g.resource_id=p.resource_id
 		      AND g.entitlement_id=p.entitlement_id
 		    WHERE p.node_id=$1 AND p.resource_id=$2
+		      AND NOT EXISTS (SELECT 1 FROM elx_technical_node_quarantines q WHERE q.node_id=p.node_id)
 		      AND p.executor_id=$3 AND p.subscription_id=$4
 		      AND o.action IN ('install','retire') AND o.state='INTENT'
 		      AND o.authority_generation=p.authority_generation

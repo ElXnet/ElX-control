@@ -116,6 +116,9 @@ func (s *server) witness(ctx context.Context,in *wrapperspb.BytesValue)(*wrapper
   }
  }
  if binding==nil || !validID(binding.ExecutorID){return nil,status.Error(codes.PermissionDenied,"witness node/executor not assigned")}
+ quarantined,quarantineErr:=journal.TechnicalNodeQuarantined(ctx,s.db,binding.Target.NodeID)
+ if quarantineErr!=nil{return nil,status.Error(codes.Unavailable,"operator quarantine ledger unavailable")}
+ if quarantined{return nil,status.Error(codes.PermissionDenied,"operator-quarantined technical node cannot renew a signed witness")}
  state,err:=journal.ReadCoreStoreWitness(ctx,s.db,binding.Target)
  if errors.Is(err,sql.ErrNoRows){return nil,status.Error(codes.FailedPrecondition,"independent Control HWM not provisioned")}
  if err!=nil{return nil,status.Error(codes.Unavailable,"Control HWM database unavailable")}

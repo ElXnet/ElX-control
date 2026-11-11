@@ -67,6 +67,7 @@ func QueueTechnicalInstall(ctx context.Context, db *sql.DB,
 		JOIN elx_core_store_witnesses w ON w.node_id=p.node_id AND w.resource_id=p.resource_id
 		JOIN elx_entitlements e ON e.id=p.entitlement_id
 		WHERE p.profile_id=$1 AND p.node_id=$2 AND p.resource_id=$3
+		  AND NOT EXISTS (SELECT 1 FROM elx_technical_node_quarantines q WHERE q.node_id=p.node_id)
 		  AND p.executor_id=$4 AND p.entitlement_id=$5
 		  AND p.subscription_id=$6 AND p.email=$7 AND p.inbound_tag=$8
 		  AND p.profile_generation=$9 AND p.authority_generation=$10
@@ -153,6 +154,7 @@ func NextTechnicalInstall(ctx context.Context, db *sql.DB,
 	    JOIN elx_core_store_witnesses w ON w.node_id=p.node_id AND w.resource_id=p.resource_id
 	    JOIN elx_entitlements e ON e.id=p.entitlement_id AND e.id=g.entitlement_id
 	    WHERE p.node_id=$1 AND p.resource_id=$2 AND p.executor_id=$3
+	      AND NOT EXISTS (SELECT 1 FROM elx_technical_node_quarantines q WHERE q.node_id=p.node_id)
 	      AND p.subscription_id=$4 AND p.state='prepared'
 	      AND o.action='install' AND o.state='INTENT'
 	      AND o.profile_generation=p.profile_generation

@@ -62,6 +62,7 @@ func QueueTechnicalRetire(ctx context.Context, db *sql.DB,
 	    JOIN elx_core_store_witnesses w ON w.node_id=p.node_id AND w.resource_id=p.resource_id
 	    JOIN elx_operation_targets t ON t.node_id=p.node_id AND t.resource_id=p.resource_id
 	    WHERE p.profile_id=$1 AND p.node_id=$2 AND p.resource_id=$3 AND p.executor_id=$4
+	      AND NOT EXISTS (SELECT 1 FROM elx_technical_node_quarantines q WHERE q.node_id=p.node_id)
 	      AND p.entitlement_id=$5 AND p.subscription_id=$6 AND p.email=$7
 	      AND p.inbound_tag=$8 AND p.profile_generation+1=$9
 	      AND p.authority_generation=$10 AND p.policy_revision=$11
@@ -137,6 +138,7 @@ func NextTechnicalRetire(ctx context.Context, db *sql.DB,
 	    JOIN elx_core_store_witnesses w ON w.node_id=p.node_id AND w.resource_id=p.resource_id
 	    JOIN elx_operation_targets t ON t.node_id=p.node_id AND t.resource_id=p.resource_id
 	    WHERE p.node_id=$1 AND p.resource_id=$2 AND p.executor_id=$3
+	      AND NOT EXISTS (SELECT 1 FROM elx_technical_node_quarantines q WHERE q.node_id=p.node_id)
 	      AND p.subscription_id=$4 AND p.state IN ('prepared','installed')
 	      AND o.action='retire' AND o.state='INTENT'
 	      AND o.profile_generation=p.profile_generation+1
