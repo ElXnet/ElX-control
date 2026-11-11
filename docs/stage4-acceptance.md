@@ -76,6 +76,20 @@ independent evidence and an explicitly approved recovery procedure exist.
 The report sees Control's phase only; it cannot establish core state
 without the separate authenticated core readback.
 
+## Paired-source E2E preflight and signed scheduler diagnostics
+
+The Control checkout and ElXray are **siblings** in GitHub Actions.
+ELXRAY_SOURCE points to the *same* ElXray module as ELXRAY_BIN, also
+under the separate nobody-UID Unix peer-credential agent. A pure Python
+preflight rejects an unrelated module, missing checkout, accidental nested
+checkout and Control checkout as its core source before expensive tests.
+
+Scheduler/FUP failure now prints a disposable PostgreSQL snapshot of
+committed rates, pending reservations, operation status and revisions.
+INTENT is never inferred to be APPLIED. This corrects the earlier
+"matching Stage-4 ElXray module is required" fixture failure, NOT
+the still-unproven two-core reduce/barrier/raise E2E scenario.
+
 ## Real implementation gaps before TESTING
 
 1. Make interrupted `INSTALLING` / `RETIRING` recoverable by a safe,

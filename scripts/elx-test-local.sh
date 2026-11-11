@@ -17,6 +17,10 @@ for tool in go git openssl python3 gcc; do
     echo "OK: $tool"
 done
 echo "Go version: $(go version)"
+# The core binary, journal provisioning and live VLESS suites MUST share
+# one exact source checkout, including across sudo's environment boundary.
+export ELXRAY_SOURCE="$core"
+python3 "$root/tests/e2e/test_stage4_workspace.py"
 python3 "$root/scripts/test_guard_disposable_postgres.py"
 if [[ -z "${ELX_CONTROL_POSTGRES_DSN:-}" ]]; then
     command -v docker >/dev/null || { echo 'MISSING: docker (enable Docker Desktop WSL integration)' >&2; exit 1; }
@@ -82,7 +86,9 @@ export TMPDIR="$work"
     go build -o "$ELX_CONTROL_BIN" ./cmd/elx-control
     bash scripts/elx-policy-smoke.sh
     python3 scripts/elx-vless-stop-smoke.py
-    python3 -m py_compile tests/e2e/test_multinode.py tests/e2e/test_lease_partition.py
+    python3 -m py_compile tests/e2e/test_multinode.py tests/e2e/test_lease_partition.py \
+        tests/e2e/stage4_workspace.py tests/e2e/test_stage4_workspace.py \
+        tests/e2e/test_live_scheduler.py tests/e2e/test_live_fup_scheduler.py
     python3 tests/e2e/test_multinode.py
     python3 tests/e2e/test_rate_partition.py
     # Managed production mode requires a different Unix UID for the node agent.
@@ -119,6 +125,7 @@ export TMPDIR="$work"
                     ELX_CONTROL_POSTGRES_DSN="$ELX_CONTROL_POSTGRES_DSN" \
                     ELX_TEST_POSTGRES_DSN="$ELX_TEST_POSTGRES_DSN" \
                     ELX_E2E_USAGE_DIAGNOSTICS=1 \
+                    ELXRAY_SOURCE="$ELXRAY_SOURCE" \
                     TMPDIR="$TMPDIR" \
                     python3 "$suite"
             done

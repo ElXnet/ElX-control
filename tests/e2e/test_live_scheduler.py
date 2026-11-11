@@ -17,6 +17,7 @@ import uuid
 
 from test_multinode import command, read_exact, require, wait_for
 from test_lease_partition import LeasedLab, eventually_live
+from stage4_workspace import stage4_core_source
 
 BLOCK = b"v" * 4096
 
@@ -33,9 +34,8 @@ class JournaledSchedulerLab(LeasedLab):
         super().__init__(folder)
         self.store_ids = [str(uuid.uuid4()) for _ in range(2)]
         self.journals = [folder / f"node-{i}-operations.json" for i in range(2)]
-        core_repo = Path(__file__).resolve().parents[2] / "ElXray"
-        require((core_repo / "go.mod").is_file(),
-                "matching Stage-4 ElXray module is required for journal provisioning")
+        core_repo = stage4_core_source(__file__)
+        self.core_repo = core_repo
         runner = subprocess.run([
             "go", "run", "-tags=elx_e2e_provision", str(Path(__file__).with_name("provision_managed_core.go")),
             self.resource_id,
@@ -199,6 +199,16 @@ def run():
                   f"node0={lower} node1={higher}; upload/download budget 500000 B/s",
                   flush=True)
         except BaseException:
+            if lab is not None and (lab.folder / "rate-scheduler-fixture").is_file():
+                # Audit actual DB commitments before interpreting an INTENT
+                # as a committed rate change or a core-signed barrier.
+                try:
+                    print("--- signed-rate PostgreSQL state ---", file=sys.stderr)
+                    print(fixture(lab, "fup-state", lab.entitlement),
+                          file=sys.stderr)
+                except BaseException as audit_error:
+                    print(f"diagnostic ledger read unavailable: {audit_error}",
+                          file=sys.stderr)
             if lab is not None:
                 for log in sorted(Path(temp).glob("*.log")):
                     print(f"--- {log.name} ---", file=sys.stderr)
