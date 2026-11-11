@@ -78,15 +78,7 @@ def run():
         try:
             lab = JournaledSchedulerLab(Path(temp))
             lab.echo.idle_timeout = 120
-            built = subprocess.run(
-                ["go", "build", "-o", str(lab.folder / "rate-scheduler-fixture"),
-                 "./tests/e2e/rate_scheduler_fixture"],
-                cwd=Path(__file__).resolve().parents[2],
-                env=lab.env(), capture_output=True, text=True,
-                timeout=120, check=False,
-            )
-            require(built.returncode == 0,
-                    f"fixture build error: {built.stderr[-1800:]}")
+            # The isolated lab compiled its own fixture before start/seed.
             lab.start()
             lab.seed()
             boots = [lab.usage(i)["Incarnation"] for i in range(2)]

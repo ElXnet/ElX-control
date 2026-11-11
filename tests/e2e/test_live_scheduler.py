@@ -17,7 +17,7 @@ import uuid
 
 from test_multinode import command, read_exact, require, wait_for
 from test_lease_partition import LeasedLab, eventually_live
-from stage4_workspace import stage4_core_source
+from stage4_workspace import stage4_core_source, build_disposable_rate_fixture
 
 BLOCK = b"v" * 4096
 
@@ -46,6 +46,10 @@ class JournaledSchedulerLab(LeasedLab):
         }, text=True, capture_output=True, check=False, timeout=120)
         require(runner.returncode == 0,
                 f"managed core journal provisioning failed: {runner.stderr[-1800:]}")
+        # Every consumer (scheduler, FUP and static-admission tests) owns
+        # a fresh ephemeral directory. Build once HERE before any seed().
+        build_disposable_rate_fixture(folder, Path(__file__).resolve().parents[2],
+                                      self.env())
 
     def env(self, *, node=None, cert=None):
         env = super().env(node=node, cert=cert)
@@ -147,15 +151,7 @@ def run():
             # telemetry collection and asynchronous rate operations, so the
             # echo endpoint must not terminate it before the core does.
             lab.echo.idle_timeout = 120
-            root = Path(__file__).resolve().parents[2]
-            compiled = subprocess.run(
-                ["go", "build", "-o", str(lab.folder / "rate-scheduler-fixture"),
-                 "./tests/e2e/rate_scheduler_fixture"],
-                cwd=root, env=lab.env(), capture_output=True, text=True,
-                timeout=120, check=False,
-            )
-            require(compiled.returncode == 0,
-                    f"fixture compile failed: {compiled.stderr[-1500:]}")
+            # JournaledSchedulerLab already built its own disposable fixture.
             lab.start()
             # Use real Control grants, not a test-only bypass of the lease API.
             lab.seed()

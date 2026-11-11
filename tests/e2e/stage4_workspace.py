@@ -6,6 +6,7 @@ ELXRAY_SOURCE refers to the same module that the local suite builds.
 import json
 import os
 from pathlib import Path
+import subprocess
 
 
 def stage4_core_source(test_script, source_override=None):
@@ -61,3 +62,33 @@ def ensure_disposable_technical_inbound_tag(config_file, node):
         raise AssertionError("technical VLESS inbound tag is ambiguous")
     path.write_text(json.dumps(config, sort_keys=True), encoding="utf-8")
     return tag
+
+
+def build_disposable_rate_fixture(folder, control_root, env, *, runner=None):
+    """Compile the scheduler fixture in EACH isolated managed-core lab.
+
+    Its binary lives inside the lab's own disposable directory. Never share
+    the path from another E2E TemporaryDirectory, which may already be gone.
+    The real PostgreSQL/Core acceptance tests use this executable to seed
+    and independently inspect durable signed rate commitments.
+    """
+    folder = Path(folder).resolve()
+    source = Path(control_root).resolve()
+    if not folder.is_dir():
+        raise AssertionError("disposable scheduler fixture directory is missing")
+    if not (source / "go.mod").is_file():
+        raise AssertionError("scheduler fixture requires a Control Go checkout")
+    output = folder / "rate-scheduler-fixture"
+    if runner is None:
+        runner = subprocess.run
+    result = runner(
+        ["go", "build", "-o", str(output), "./tests/e2e/rate_scheduler_fixture"],
+        cwd=source, env=env, capture_output=True, text=True,
+        timeout=120, check=False,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"scheduler fixture build failed: {result.stderr[-1600:]}")
+    if not output.is_file():
+        raise AssertionError("scheduler fixture build reported success without output")
+    return output
