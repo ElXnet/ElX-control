@@ -165,6 +165,13 @@ def run():
                 lab.await_revision(i, 2)
                 assert_denied(lab, i)
             print("PASS: two managed cores, pinned signed store/boot witnesses", flush=True)
+            # Two independent mTLS Control writers may receive the same
+            # durable PREPARE/INSTALL/RETIRE; only one immutable outcome is
+            # allowed. The core serializes mutations, Control confirms only
+            # signed receipts, and the duplicate agent must remain healthy.
+            lab.spawn("agent0-duplicate", [
+                lab.control, "serve-agent", "-interval", "200ms",
+            ], env=lab.env(node=0, cert="node0"))
 
             profiles = [str(uuid.uuid4()) for _ in range(2)]
             emails = [f"technical-{i}@lab" for i in range(2)]
@@ -232,8 +239,11 @@ def run():
                         "new signed UUID resurrected an old retired identity")
                 assert_technical_uuid_denied(lab, i, fresh[i])
                 assert_technical_uuid_denied(lab, i, profiles[i])
+            require(lab.processes["agent0-duplicate"].poll() is None,
+                    "concurrent signed writer crashed instead of idempotently reconciling")
             print("PASS: signed fresh-UUID re-provisioning on both cores "
-                  "preserves permanent old tombstones and owner-slot/rate budget", flush=True)
+                  "with concurrent Control writers and unchanged paid capacity",
+                  flush=True)
             # An operator's stale static JSON after a restart must NEVER
             # revive a permanently retired effective UUID. Core refusal to
             # start is also a valid fail-closed outcome; otherwise every

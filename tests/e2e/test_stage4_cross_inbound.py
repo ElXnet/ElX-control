@@ -85,6 +85,10 @@ def run():
                 time.sleep(0.15)
             require(lab.processes["agent0"].poll() not in (None, 0),
                     "foreign-inbound alias did not cause signed INSTALL failure")
+            # Agent0's refusal is the EXPECTED security result. Remove the
+            # stopped process from liveness monitoring before checking the
+            # other healthy processes and dedicated VLESS denial.
+            lab.stop("agent0")
             disk, denied = journal_state(lab, 0, str(profile))
             ledger = database_state(lab, 0, str(profile))
             require(disk is not None and disk["phase"] == "PREPARED" and
