@@ -234,6 +234,38 @@ def run():
                 assert_technical_uuid_denied(lab, i, profiles[i])
             print("PASS: signed fresh-UUID re-provisioning on both cores "
                   "preserves permanent old tombstones and owner-slot/rate budget", flush=True)
+            # An operator's stale static JSON after a restart must NEVER
+            # revive a permanently retired effective UUID. Core refusal to
+            # start is also a valid fail-closed outcome; otherwise every
+            # authenticated VLESS flow must still be denied without owner
+            # proof. This is configuration rollback, not a live API bypass.
+            lab.stop("agent0")
+            lab.stop("node0")
+            previous = bytearray(uuid.UUID(profiles[0]).bytes)
+            previous[6] ^= 0x53
+            previous[7] ^= 0x19
+            stale_alias = str(uuid.UUID(bytes=bytes(previous)))
+            config_path = lab.folder / "node-0.json"
+            server = json.loads(config_path.read_text(encoding="utf-8"))
+            server["inbounds"][0]["settings"]["clients"].append({
+                "id": stale_alias, "email": "stale-operator@lab"
+            })
+            config_path.write_text(json.dumps(server), encoding="utf-8")
+            lab.spawn("node0", [lab.core, "run", "-c", config_path],
+                      env=lab.env(node=0))
+            time.sleep(2)
+            if lab.processes["node0"].poll() is not None:
+                require(lab.processes["node0"].returncode != 0,
+                        "stale config restart exited as if successful")
+                print("PASS: stale static UUID config rollback refused at core startup",
+                      flush=True)
+            else:
+                assert_technical_uuid_denied(lab, 0, stale_alias)
+                assert_technical_uuid_denied(lab, 0, fresh[0])
+                assert_denied(lab, 0)
+                print("PASS: stale static UUID rollback after managed restart "
+                      "cannot transmit VLESS payload", flush=True)
+
 
         except BaseException:
             if lab is not None:

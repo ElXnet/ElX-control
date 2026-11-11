@@ -186,3 +186,21 @@ New mandatory tests: real two-core cross-inbound shadow INSTALL denial;
 replacement on both real cores; isolated PostgreSQL witness digest regression.
 All tests run only on disposable local resources. This batch is pending
 exact paired-head CI; do not assert PASS, merge, or deploy yet.
+
+## Operator crash-forensics gate and stale static rollback acceptance (pending)
+
+The paired core now includes `cmd/elx-technical-inspect`: read-only,
+fail-closed offline verification of the durable journal plus anchor against
+an independently obtained Control store, exact profile and original
+operation ID. `-require-terminal` rejects `INSTALLING`/`RETIRING`
+rather than guessing AddUser/RemoveUser outcome or mutating the ledger.
+`docs/elx/stage4-operator-recovery.md` states isolation and evidence
+requirements. It **does not** implement an independently attested abort
+that could release a pending Control INTENT: that remains a P0
+security/functionality blocker.
+
+The two-core real VLESS lifecycle gate also attempts a stale static UUID
+alias after the original profile was signed-RETIRED and re-provisioned with
+a fresh UUID. Managed core startup may refuse or the live data plane must
+deny both stale and new VLESS traffic without device owner proof.
+CI still NOT RUN on this staged exact paired head.

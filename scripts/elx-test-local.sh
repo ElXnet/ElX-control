@@ -77,8 +77,10 @@ export ELXRAY_BIN="$work/elxray" ELX_CONTROL_BIN="$work/elx-control"
 export TMPDIR="$work"
 (
     cd "$core"
-    go test -race -count=1 -timeout 180s ./common/sessionfence ./common/subscriptionrate ./app/policy/... ./app/dispatcher ./proxy/vless/inbound
+    go test -race -count=1 -timeout 180s ./common/sessionfence ./common/subscriptionrate ./app/policy/... ./app/dispatcher ./proxy/vless/inbound ./cmd/elx-technical-inspect
     go build -o "$ELXRAY_BIN" ./main
+    # Offline incident tool is read-only; it never modifies the pinned store.
+    go build -o "$work/elx-technical-inspect" ./cmd/elx-technical-inspect
 )
 (
     cd "$root"
