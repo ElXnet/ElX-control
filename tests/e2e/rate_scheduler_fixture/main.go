@@ -190,8 +190,56 @@ func readFUPState(ctx context.Context,db *sql.DB,entitlement string) error {
 	return json.NewEncoder(os.Stdout).Encode(s)
 }
 
+
+type technicalSnapshot struct {
+	ProfileState string `json:"profileState"`
+	Operations map[string]string `json:"operations"`
+	StoreID string `json:"storeId"`
+	CoreBoot string `json:"coreBoot"`
+	CoreRevision int64 `json:"coreRevision"`
+	CommittedUp int64 `json:"committedUp"`
+	CommittedDown int64 `json:"committedDown"`
+	ActiveSlots int64 `json:"activeSlots"`
+}
+
+// Independent read-only Control snapshot, only for guarded disposable elx_test.
+func technicalState(ctx context.Context, db *sql.DB, args []string) error {
+	if len(args)!=2 || !canonical(args[0]) || !canonical(args[1]) {
+		return errors.New("technical-state requires canonical profile and node UUIDs")
+	}
+	var s technicalSnapshot
+	s.Operations=make(map[string]string)
+	err:=db.QueryRowContext(ctx,`SELECT p.state,w.store_id::text,
+	    COALESCE(w.core_incarnation::text,''),w.core_revision,
+	    g.committed_up,g.committed_down,e.active_slots
+	    FROM elx_technical_profiles p
+	    JOIN elx_core_store_witnesses w ON w.node_id=p.node_id
+	    AND w.resource_id=p.resource_id
+	    JOIN elx_rate_grants g ON g.node_id=p.node_id AND g.resource_id=p.resource_id
+	    AND g.entitlement_id=p.entitlement_id
+	    JOIN elx_entitlements e ON e.id=p.entitlement_id
+	    WHERE p.profile_id=$1 AND p.node_id=$2`,args[0],args[1]).Scan(
+	    &s.ProfileState,&s.StoreID,&s.CoreBoot,&s.CoreRevision,
+	    &s.CommittedUp,&s.CommittedDown,&s.ActiveSlots)
+	if err!=nil{return err}
+	rows,err:=db.QueryContext(ctx,`SELECT action,state
+	    FROM elx_technical_profile_operations WHERE profile_id=$1 ORDER BY action`,args[0])
+	if err!=nil{return err}
+	defer rows.Close()
+	for rows.Next(){
+		var action,state string
+		if err=rows.Scan(&action,&state);err!=nil{return err}
+		if _,duplicate:=s.Operations[action];duplicate{
+			return errors.New("duplicate technical operation action")
+		}
+		s.Operations[action]=state
+	}
+	if err=rows.Err();err!=nil{return err}
+	return json.NewEncoder(os.Stdout).Encode(s)
+}
+
 func main() {
-	if len(os.Args) < 3 || (os.Args[1] != "seed" && os.Args[1] != "witness" && os.Args[1] != "inspect" && os.Args[1] != "arm-fup" && os.Args[1] != "fup-state") {
+	if len(os.Args) < 3 || (os.Args[1] != "seed" && os.Args[1] != "witness" && os.Args[1] != "inspect" && os.Args[1] != "arm-fup" && os.Args[1] != "fup-state" && os.Args[1] != "technical-state") {
 		fmt.Fprintln(os.Stderr, "usage: rate-scheduler-fixture seed <10 args> | witness <node resource executor store> | inspect|arm-fup|fup-state <entitlement>")
 		os.Exit(2)
 	}
@@ -213,6 +261,8 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	switch os.Args[1] {
+	case "technical-state":
+        err = technicalState(ctx, db, os.Args[2:])
 	case "witness":
 		err = provisionWitness(ctx, db, os.Args[2:])
 		if err == nil {
