@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real expired lost-ACK INSTALL recovery, without replaying a VLESS mutation.
+"""Real expired lost-ACK INSTALL and RETIRE recovery without replay.
 
 A disposable PostgreSQL row lock blocks Control's signed INSTALL confirmation
 after the real ElXray journal reaches INSTALLED. The original agent is stopped;
@@ -117,6 +117,56 @@ def run():
             assert_denied(lab, 1)
             print("PASS: expired lost Control ACK recovered by core-signed "
                   "read-only INSTALLED proof; no replay or device admission", flush=True)
+
+            # Repeat the real fault with RETIRE: the core's permanent UUID
+            # tombstone must already exist when Control still says installed.
+            # Recovery proves the terminal absence; it cannot resurrect an
+            # old VLESS user or release purchased rate/device rights.
+            lab.stop("agent0")
+            retired_op = enqueue(lab, "retire", 0, profile, email, tag, ttl=18)
+            ready.unlink()
+            lab.spawn("technical-ack-lock-retire", [
+                lab.folder / "rate-scheduler-fixture",
+                "hold-technical-confirm", retired_op, ready,
+            ], env={**lab.env(), "ELX_STAGE4_E2E_DISPOSABLE": "1"})
+            wait_for("PostgreSQL RETIRE ACK lock", ready.is_file,
+                     lab.processes, timeout=8)
+            lab.base_env["ELX_AGENT_TECHNICAL_RETIRE"] = "1"
+            lab.start_agent(0)
+
+            def locally_retired_centrally_pending():
+                durable, tombstones = journal_state(lab, 0, profile)
+                if durable is None or durable["phase"] != "RETIRED":
+                    return None
+                ledger = database_state(lab, 0, profile)
+                if ledger["profileState"] != "installed" or ledger["operations"].get("retire") != "INTENT":
+                    return None
+                require(tombstones.get(profile) == 2,
+                        "retired identity lacks durable effective-UUID tombstone")
+                return durable
+            wait_for("core RETIRED while Control RETIRE ACK is withheld",
+                     locally_retired_centrally_pending, lab.processes, timeout=10)
+            assert_technical_uuid_denied(lab, 0, profile)
+            lab.stop("agent0")
+            lab.stop("technical-ack-lock-retire")
+            ledger = database_state(lab, 0, profile)
+            require(ledger["operations"].get("retire") == "INTENT" and
+                    ledger["profileState"] == "installed",
+                    "RETIRE proof unexpectedly committed without signed recovery")
+            print("PASS: real core RETIRED with durable tombstone while "
+                  "Control RETIRE remains INTENT", flush=True)
+
+            time.sleep(22)  # signed RETIRE expires; must not be replayed
+            lab.start_agent(0)
+            retired, tombstones = wait_phase(
+                lab, 0, profile, "RETIRED", "retired",
+                {"prepare": "APPLIED", "install": "APPLIED", "retire": "APPLIED"})
+            require(retired["retireOperationId"] == retired_op and tombstones.get(profile) == 2,
+                    "recovery changed the permanent RETIRE operation/tombstone")
+            assert_technical_uuid_denied(lab, 0, profile)
+            assert_denied(lab, 1)
+            print("PASS: expired lost RETIRE ACK recovered read-only from "
+                  "core-signed terminal absence, no UUID reuse or capacity release", flush=True)
         except BaseException:
             if lab is not None:
                 for logfile in sorted(Path(temp).glob("*.log")):
@@ -133,4 +183,4 @@ if __name__ == "__main__":
         run()
     except (AssertionError, OSError, ValueError, subprocess.SubprocessError,
             socket.timeout) as exc:
-        sys.exit(f"FAIL: real expired INSTALL lost-ACK recovery: {exc}")
+        sys.exit(f"FAIL: real expired INSTALL/RETIRE lost-ACK recovery: {exc}")
