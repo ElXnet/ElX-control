@@ -138,3 +138,27 @@ PREPARE/INSTALL/RETIRE proof or live hot reload/multi-inbound alias tests.
 `TESTING` (complete implementation undergoing acceptance) ->
 `DONE` (all P0 gates passed). A FAIL or NOT RUN is never PASS.
 Do not merge until the complete paired-head gate is green and verified.
+
+## 2026-11-11: exact-head two-core lifecycle PASS and pending lost-ACK fault injection
+
+The Stage-4 positive real-core PostgreSQL lifecycle gate passed in Control
+workflow [#43019083443](https://github.com/ElXnet/ElX-control/actions/runs/43019083443)
+for Control `e91267f` + paired ElXray `0f0f3f8`: **4 of 4 CI jobs PASS**.
+The suite verifies two independently pinned core/store/boot identities,
+Control-signed PREPARE → INSTALL → RETIRE, live VLESS UUID no-payload admission,
+PostgreSQL APPLIED proof, durable journal tombstones, and unchanged purchased
+bandwidth and owner/device slot reservations. This is not physical device
+authorization and does not cover interrupted INSTALLING/RETIRING by itself.
+
+A new **pending/not yet passed** test `test_stage4_lost_ack.py` extends
+real-core testing with a disposable SQL confirmation row lock. It lets an
+authentic signed INSTALL finish in ElXray without letting its signed Control
+ACK commit; the original operation then expires. A fresh agent is expected to
+read only the immutable terminal journal evidence, obtain a new independently
+signed core recovery receipt, and commit the original PostgreSQL INTENT.
+The runner tests failure closed if the ACK accidentally committed or a new
+operation was invented. The agent now attempts recovery before stale PREPARE
+retries so a finished, unacknowledged installation is reconciled first.
+No real PostgreSQL instance or production API accepts the test helper.
+CI on the exact new head is **PENDING**; this does not close the separate
+RETIRED lost-ACK, interrupted-operation, alias/rotation, or hot-reload gates.
