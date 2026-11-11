@@ -3,6 +3,7 @@
 Control and ElXray are siblings in GitHub Actions, NOT nested.
 ELXRAY_SOURCE refers to the same module that the local suite builds.
 """
+import json
 import os
 from pathlib import Path
 
@@ -25,3 +26,38 @@ def stage4_core_source(test_script, source_override=None):
     if not any(line.strip() == "module github.com/xtls/xray-core" for line in header):
         raise AssertionError("unexpected ElXray Go module path in paired checkout")
     return core
+
+
+def ensure_disposable_technical_inbound_tag(config_file, node):
+    """Give exactly one VLESS inbound a stable, nonempty tag before core boot.
+
+    This only rewrites a disposable E2E server JSON. Production config
+    parsing remains untouched and rejects an untagged technical inbound.
+    """
+    if not isinstance(node, int) or node < 0:
+        raise AssertionError("invalid technical test node index")
+    path = Path(config_file)
+    if not path.is_file():
+        raise AssertionError("missing disposable VLESS server JSON")
+    try:
+        config = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, UnicodeError) as exc:
+        raise AssertionError("invalid technical VLESS server JSON") from exc
+    if not isinstance(config, dict) or not isinstance(config.get("inbounds"), list):
+        raise AssertionError("technical VLESS test requires explicit inbounds")
+    inbounds = config["inbounds"]
+    vless = [entry for entry in inbounds if isinstance(entry, dict)
+             and entry.get("protocol") == "vless"]
+    if len(vless) != 1:
+        raise AssertionError("technical E2E requires exactly one tagged VLESS inbound")
+    chosen = vless[0]
+    tag = chosen.get("tag")
+    if not isinstance(tag, str) or not tag:
+        tag = f"elx-technical-vless-{node}"
+        chosen["tag"] = tag
+    if len(tag) > 128 or sum(
+            isinstance(item, dict) and item.get("tag") == tag
+            for item in inbounds) != 1:
+        raise AssertionError("technical VLESS inbound tag is ambiguous")
+    path.write_text(json.dumps(config, sort_keys=True), encoding="utf-8")
+    return tag

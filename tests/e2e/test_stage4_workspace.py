@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Fast isolated structural regression before expensive PostgreSQL/VLESS E2E."""
+import json
 import os
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from stage4_workspace import stage4_core_source
+from stage4_workspace import stage4_core_source, ensure_disposable_technical_inbound_tag
 
 
 class PairedGoCheckoutTest(unittest.TestCase):
@@ -56,6 +57,42 @@ class PairedGoCheckoutTest(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, "separate source"):
             stage4_core_source(self.script, str(self.control))
 
+
+
+class DisposableTaggedVLESSTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="elx-technical-vless-")
+        self.addCleanup(self.tmp.cleanup)
+        self.config = Path(self.tmp.name) / "server.json"
+
+    def test_old_untagged_static_vless_becomes_stably_tagged(self):
+        self.config.write_text(json.dumps({"inbounds": [
+            {"protocol": "vless", "settings": {"clients": [{"id": "test"}]}}]}),
+            encoding="utf-8")
+        tag = ensure_disposable_technical_inbound_tag(self.config, 0)
+        self.assertEqual(tag, "elx-technical-vless-0")
+        self.assertEqual(ensure_disposable_technical_inbound_tag(self.config, 0), tag)
+        self.assertEqual(json.loads(self.config.read_text())["inbounds"][0]["tag"], tag)
+
+    def test_preserves_explicit_tag_without_changing_protocol(self):
+        self.config.write_text(json.dumps({"inbounds": [
+            {"protocol": "vless", "tag": "existing-tag"},
+            {"protocol": "socks", "tag": "other-proxy"}]}), encoding="utf-8")
+        self.assertEqual(ensure_disposable_technical_inbound_tag(self.config, 1), "existing-tag")
+
+    def test_invalid_or_duplicate_vless_fails_without_static_bypass(self):
+        for candidate in (
+            {"inbounds": []},
+            {"inbounds": [{"protocol": "socks"}]},
+            {"inbounds": [{"protocol": "vless"}, {"protocol": "vless"}]},
+            {"inbounds": [{"protocol": "vless", "tag": "duplicate"},
+                          {"protocol": "socks", "tag": "duplicate"}]},
+            {"inbounds": [{"protocol": "vless", "tag": "x" * 129}]},
+            {"inbounds": "not-a-list"},
+        ):
+            self.config.write_text(json.dumps(candidate), encoding="utf-8")
+            with self.assertRaises(AssertionError):
+                ensure_disposable_technical_inbound_tag(self.config, 0)
 
 if __name__ == "__main__":
     unittest.main()

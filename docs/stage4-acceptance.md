@@ -98,6 +98,13 @@ the still-unproven two-core reduce/barrier/raise E2E scenario.
 
 ## Two-real-core static-JSON admission regression
 
+Technical mode requires a stable nonempty VLESS inbound tag: an
+untagged or ambiguous inbound must **fail startup closed** rather than
+becoming a payload-admitting static fallback. The shared older E2E fixture
+created untagged VLESS JSON; the Stage-4-specific disposable test now
+pins an explicit unique tag on each node. Separate fast Python tests
+reject missing, duplicate and oversized tags without changing core rules.
+
 The disposable \`test_stage4_static_bypass.py\` exercises two real
 managed ElXray nodes with protected Unix peer credentials and PostgreSQL
 Control lease agents. It checks that the *preconfigured* VLESS JSON

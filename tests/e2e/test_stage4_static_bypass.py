@@ -18,6 +18,7 @@ import time
 from test_multinode import require
 from test_lease_partition import assert_denied
 from test_live_scheduler import JournaledSchedulerLab
+from stage4_workspace import ensure_disposable_technical_inbound_tag
 
 
 def assert_static_deny_while_core_alive(lab, node, label):
@@ -38,6 +39,12 @@ def run():
         lab = None
         try:
             lab = JournaledSchedulerLab(Path(tmp))
+            # The legacy shared fixture deliberately leaves VLESS untagged.
+            # A technical installation/recovery must bind an exact inbound:
+            # add stable tags to the disposable JSON, never weaken ElXray.
+            for node in range(2):
+                ensure_disposable_technical_inbound_tag(
+                    lab.folder / f"node-{node}.json", node)
             # Only explicitly managed cores opt in. This is intentionally
             # incompatible with forwarding payload until later owner/device
             # authorization is implemented; never weaken this admission gate.
